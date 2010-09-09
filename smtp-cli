@@ -1,14 +1,35 @@
 #!/usr/bin/perl
 
 # 
-# Simple SMTP client with STARTTLS and AUTH support.
-# Michal Ludvig <michal@logix.cz>, 2003-2008
-# See http://www.logix.cz/michal/devel/smtp for details.
+# Command line SMTP client with STARTTLS, SMTP-AUTH and IPv6 support.
+# Michal Ludvig <michal@logix.cz>, 2003-2009
+# See http://www.logix.cz/michal/devel/smtp-cli for details.
 # Thanks to all contributors for ideas and fixes!
-# 
+#
+
+my $version = "2.5";
 
 # 
-# This program is licensed under GNU Public License v2 (GPLv2)
+# ChangeLog:
+# * Version 2.5    (2009-07-21)
+#   - IPv6 support provided the required modules are 
+#     available.
+#
+# * Version 2.1    (2008-12-08)
+#   - Make the MIME modules optional. Simply disable
+#     the required functionality if they're not available.
+#
+# * Version 2.0    (2008-11-18)
+#   - Support for message building through MIME::Lite, 
+#     including attachments, multipart, etc.
+#
+# * Version 1.1    (2006-08-26)
+#   - STARTTLS and AUTH support
+#
+# * Version 1.0
+#   - First public version
+# 
+# This program is licensed under GNU Public License v3 (GPLv3)
 # 
 
 ## Require Perl 5.8 or higher -> we need open(.., .., \$variable) construct
@@ -23,15 +44,17 @@ use MIME::Base64 qw(encode_base64 decode_base64);
 use Getopt::Long;
 use Socket qw(:DEFAULT :crlf);
 
-my ($user, $pass, $host, $port, 
+my ($user, $pass, $host, $port, $addr_family,
     $use_login, $use_plain, $use_cram_md5, $use_digest_md5, 
     $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
     $hello_host, $from, @to, $datasrc,
     $missing_modules_ok, $missing_modules_count,
-    $subject, $body_plain, $body_html, @attachments, @attachments_inline, $built_message);
+    $subject, $body_plain, $body_html, @attachments, @attachments_inline,
+    $sock, $built_message);
 
 $host = 'localhost';
 $port = 'smtp(25)';
+$addr_family = AF_UNSPEC;
 $hello_host = 'localhost';
 $verbose = 0;
 $use_login = 0;
@@ -48,6 +71,8 @@ $missing_modules_count = 0;
 GetOptions (
 	'host|server=s' => \$host,
 	'port=i' => \$port, 
+	'4|ipv4' => sub { $addr_family = AF_INET; },
+	'6|ipv6' => sub { $addr_family = AF_INET6; },
 	'user=s' => \$user, 'password=s' => \$pass,
 	'auth-login' => \$use_login, 
 	'auth-plain' => \$use_plain,
@@ -69,9 +94,24 @@ GetOptions (
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'missing-modules-ok' => \$missing_modules_ok,
 	'verbose:1' => \$verbose,
+	'version' => sub { &version() },
 	'help' => sub { &usage() } );
 
 #### Try to load optional modules
+
+## IO::Socket::INET6 and Socket6 is optional
+my $socket6 = eval { require IO::Socket::INET6; require Socket6; 1; };
+if (not $socket6) {
+	if ($addr_family == AF_INET6) {
+		die("!!! IO::Socket::INET6 and Socket6 modules are not found\nIPv6 support is not available\n");
+	}
+	if (not $missing_modules_ok) {
+		warn("!!! IO::Socket::INET6 -- optional module not found\n");
+		warn("!!! Socket6 -- optional module not found\n");
+		warn("!!! These modules are required for IPv6 support\n\n");
+		$missing_modules_count += 2;
+	}
+}
 
 ## MIME::Lite dependency is optional
 my $mime_lite = eval { require MIME::Lite; 1; };
@@ -175,12 +215,17 @@ if ($auth_ok && defined ($user) && !defined ($pass))
 }
 
 # Connect to the SMTP server.
-my $sock = IO::Socket::INET->new(
+my %connect_args = (
 	PeerAddr => $host,
 	PeerPort => $port,
 	Proto => 'tcp',
-	Timeout => 5)
-	or die ("Connect failed: $@\n");
+	Timeout => 5);
+if ($socket6) {
+	$connect_args{'Domain'} = $addr_family;
+	$sock = IO::Socket::INET6->new(%connect_args) or die ("Connect failed: $@\n");
+} else {
+	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
+}
 
 my ($code, $text);
 my (%features);
@@ -609,27 +654,40 @@ sub build_message
 	$message->attr("To" => join(", ", @to));
 	$message->attr("Subject" => $subject);
 	$message->attr("X-Mailer" => "See http://www.logix.cz/michal/devel/smtp");
-	#$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-client.pl");
+	#$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
 	return $message;
+}
+
+sub version ()
+{
+	print "smtp-cli $version\n";
+	exit (0);
 }
 
 sub usage ()
 {
 	printf (
-"Simple SMTP client written in Perl that supports some
-advanced features like STARTTLS and AUTH. Can also create 
-messages from components (files, text snippets) and attach
-files.
+"Simple SMTP client written in Perl that supports advanced
+features like STARTTLS and SMTP-AUTH and IPv6. It can also 
+create messages from components (files, text snippets) and 
+attach files.
 
-Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2008
-        http://www.logix.cz/michal/devel/smtp
+Version: smtp-cli v$version
 
-Usage: smtp-client.pl [--options]
+Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2009
+        http://www.logix.cz/michal/devel/smtp-cli
+
+Usage: smtp-cli [--options]
 
         --host=<hostname>       Host name or address of the SMTP server.
                                 (default: localhost)
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
+
+        -4 or --ipv4            Use standard IP (IPv4) protocol.
+        -6 or --ipv6            Use IPv6 protocol. For hosts that have
+                                both IPv6 and IPv4 addresses the IPv6
+                                connection is tried first.
         
         --hello-host=<string>   String to use in the EHLO/HELO command.
         --disable-ehlo          Don't use ESMTP EHLO command, only HELO.
@@ -683,6 +741,7 @@ Usage: smtp-client.pl [--options]
         Other options
         --verbose[=<number>]    Be more verbose, print the SMTP session.
         --missing-modules-ok    Don't complain about missing optional modules.
+        --version               Print smtp-cli version (i.e. $version)
         --help                  Guess what is this option for ;-)
 ");
 	exit (0);
