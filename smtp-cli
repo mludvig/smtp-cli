@@ -7,10 +7,20 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "2.5";
+my $version = "2.6";
 
 # 
 # ChangeLog:
+# * Version 2.6    (2009-08-05)
+#   - Message building fixed for plaintext+attachment case.
+#   - Auto-enable AUTH as soon as --user parameter is used.
+#     (previously --enable-auth or --auth-plain had to be used
+#      together with --user, that was confusing).
+#   - New --print-only parameter for displaying the composed
+#     MIME message without sending.
+#   - All(?) non-standard modules are now optional.
+#   - Displays local and remote address on successfull connect.
+#
 # * Version 2.5    (2009-07-21)
 #   - IPv6 support provided the required modules are 
 #     available.
@@ -37,19 +47,17 @@ require 5.008;
 
 use strict;
 use IO::Socket::INET;
-use IO::Socket::SSL;
-use Net::SSLeay;
-use Digest::HMAC_MD5 qw(hmac_md5_hex);
 use MIME::Base64 qw(encode_base64 decode_base64);
 use Getopt::Long;
 use Socket qw(:DEFAULT :crlf);
 
 my ($user, $pass, $host, $port, $addr_family,
-    $use_login, $use_plain, $use_cram_md5, $use_digest_md5, 
+    $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
     $hello_host, $from, @to, $datasrc,
     $missing_modules_ok, $missing_modules_count,
-    $subject, $body_plain, $body_html, @attachments, @attachments_inline,
+    $subject, $body_plain, $body_html, $print_only,
+	@attachments, @attachments_inline,
     $sock, $built_message);
 
 $host = 'localhost';
@@ -60,12 +68,12 @@ $verbose = 0;
 $use_login = 0;
 $use_plain = 0;
 $use_cram_md5 = 0;
-$use_digest_md5 = 0;
 $starttls_ok = 1;
 $auth_ok = 0;
 $ehlo_ok = 1;
 $missing_modules_ok = 0;
 $missing_modules_count = 0;
+$print_only = 0;
 
 # Get command line options.
 GetOptions (
@@ -77,11 +85,10 @@ GetOptions (
 	'auth-login' => \$use_login, 
 	'auth-plain' => \$use_plain,
 	'auth-cram-md5' => \$use_cram_md5, 
-	'auth-digest-md5' => \$use_digest_md5,
 	'disable-ehlo' => sub { $ehlo_ok = 0; },
 	'force-ehlo' => sub { $ehlo_ok = 2; },
 	'hello-host|ehlo-host|helo-host=s' => \$hello_host,
-	'enable-auth' => \$auth_ok,
+	'auth|enable-auth' => \$auth_ok,
 	'disable-starttls|disable-tls|disable-ssl' => 
 		sub { $starttls_ok = 0; },
 	'from|mail-from=s' => \$from,
@@ -92,14 +99,23 @@ GetOptions (
 	'body-html=s' => \$body_html,
 	'attachment|attach=s' => \@attachments,
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
+	'print-only' => \$print_only,
 	'missing-modules-ok' => \$missing_modules_ok,
-	'verbose:1' => \$verbose,
+	'v|verbose+' => \$verbose,
 	'version' => sub { &version() },
 	'help' => sub { &usage() } );
 
 #### Try to load optional modules
 
-## IO::Socket::INET6 and Socket6 is optional
+## IO::Socket::SSL and Net::SSLeay are optional
+my $have_ssl = eval { require IO::Socket::SSL; require Net::SSLeay; 1; };
+if (not $have_ssl and not $missing_modules_ok) {
+	warn("!!! IO::Socket::SSL and/or Net::SSLeay modules are not found\n");
+	warn("!!! These modules are required for STARTTLS support\n");
+	$missing_modules_count += 2;
+}
+
+## IO::Socket::INET6 and Socket6 are optional
 my $socket6 = eval { require IO::Socket::INET6; require Socket6; 1; };
 if (not $socket6) {
 	if ($addr_family == AF_INET6) {
@@ -125,15 +141,25 @@ if (not $mime_lite and not $missing_modules_ok) {
 my $file_type = eval { require File::Type; File::Type->new(); };
 if (not $file_type and not $missing_modules_ok) {
 	warn("!!! File::Type -- optional module not found\n");
-	warn("!!! used for guessing MIME types of attachments\n\n");
+	warn("!!! Used for guessing MIME types of attachments\n\n");
 	$missing_modules_count++;
 }
 
 ## Term::ReadKey dependency is optional
-my $term_readkey = eval { require Term::ReadKey; 1; };
-if (not $term_readkey and not $missing_modules_ok) {
+my $have_term_readkey = eval { require Term::ReadKey; 1; };
+if (not $have_term_readkey and not $missing_modules_ok) {
 	warn("!!! Term::ReadKey -- optional module not found\n");
-	warn("!!! used for hidden reading SMTP password from the terminal\n\n");
+	warn("!!! Used for hidden reading SMTP password from the terminal\n\n");
+	$missing_modules_count++;
+}
+
+my $have_hmac_md5 = eval { require Digest::HMAC_MD5; 1; };
+if (not $have_hmac_md5 and not $missing_modules_ok) {
+	if ($use_cram_md5) {
+		die("!!! CRAM-MD5 authentication is not available because Digest::HMAC_MD5 module is missing\n");
+	}
+	warn("!!! Digest::HMAC_MD5 -- optional module missing\n");
+	warn("!!! Used for CRAM-MD5 authentication method\n");
 	$missing_modules_count++;
 }
 
@@ -177,39 +203,51 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 
 	open(BUILT_MESSAGE, "+>", \$built_message);
 	$datasrc = "///built_message";
-	$message->print(\*BUILT_MESSAGE);
+	if ($print_only) {
+		$message->print();
+		exit(0);
+	} else {
+		$message->print(\*BUILT_MESSAGE);
+	}
 	seek(BUILT_MESSAGE, 0, 0);
-
 }
+
+# Username was given -> enable AUTH
+if ($user)
+	{ $auth_ok = 1; }
+
 # If at least one --auth-* option was given, enable AUTH.
-if ($use_login + $use_plain + $use_cram_md5 + $use_digest_md5 > 0)
+if ($use_login + $use_plain + $use_cram_md5 > 0)
 	{ $auth_ok = 1; }
 
 # If --enable-auth was given, enable all AUTH methods.
-elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 
-                    + $use_digest_md5 == 0))
+elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 == 0))
 {
 	$use_login = 1;
 	$use_plain = 1;
-	$use_cram_md5 = 1;
-	$use_digest_md5 = 1;
+	$use_cram_md5 = 1 if ($have_hmac_md5);
 }
 
 # Exit if user haven't specified username for AUTH.
 if ($auth_ok && !defined ($user))
-	{ die ("You requested SMTP AUTH support. Consider using --user switch as well.\n"); }
+	{ die ("SMTP AUTH support requested without --user\n"); }
 
 # Ask for password if it wasn't supplied on the command line.
 if ($auth_ok && defined ($user) && !defined ($pass))
 {
+	if ($have_term_readkey) {
+		# Set echo off.
+		Term::ReadKey::ReadMode (2);
+	} else {
+		warn ("Module Term::ReadKey not available - password WILL NOT be hidden!!!\n");
+	}
 	printf ("Enter password for %s@%s : ", $user, $host);
-	# Set echo off.
-	ReadMode (2);
 	$pass = <>;
-	# Restore echo.
-	ReadMode (0);
-	printf ("\n");
-
+	if ($have_term_readkey) {
+		# Restore echo.
+		Term::ReadKey::ReadMode (0);
+		printf ("\n");
+	}
 	exit if (! defined ($pass));
 	chop ($pass);
 }
@@ -225,6 +263,15 @@ if ($socket6) {
 	$sock = IO::Socket::INET6->new(%connect_args) or die ("Connect failed: $@\n");
 } else {
 	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
+}
+
+if ($verbose >= 1) {
+	my $addr_fmt = "%s";
+	$addr_fmt = "[%s]" if ($sock->sockhost() =~ /:/); ## IPv6 connection
+
+	printf ("Connection from $addr_fmt:%s to $addr_fmt:%s\n",
+		$sock->sockhost(), $sock->sockport(),
+		$sock->peerhost(), $sock->peerport());
 }
 
 my ($code, $text);
@@ -252,6 +299,14 @@ exit 0;
 sub run_smtp
 {
 	# See if we could start encryption
+	if ((defined ($features{'STARTTLS'}) || defined ($features{'TLS'})) && $starttls_ok && !$have_ssl)
+	{
+		warn ("Module IO::Socket::SSL is missing - STARTTLS support disabled.\n");
+		warn ("Use --disable-starttls or install the modules to avoid this warning.\n");
+		undef ($features{'STARTTLS'});
+		undef ($features{'TLS'});
+	}
+
 	if ((defined ($features{'STARTTLS'}) || defined ($features{'TLS'})) && $starttls_ok)
 	{
 		printf ("Starting TLS...\n") if ($verbose >= 1);
@@ -284,61 +339,48 @@ sub run_smtp
 	# See if we should authenticate ourself
 	if (defined ($features{'AUTH'}) && $auth_ok)
 	{
-		if ($verbose >= 1)
-		{
-			printf ("AUTH method (%s): ", $features{'AUTH'});
-		}
+		printf ("AUTH method (%s): ", $features{'AUTH'}) if ($verbose >= 1);
 
-		# Try CRAM-MD5 if supported by the server
+		## Try DIGEST-MD5 first
+		# Actually we won't. It never worked reliably here.
+		# After all DIGEST-MD5 is on a way to deprecation
+		# see this thread: http://www.imc.org/ietf-sasl/mail-archive/msg02996.html
+
+		# Instead use CRAM-MD5 if supported by the server
 		if ($features{'AUTH'} =~ /CRAM-MD5/i && $use_cram_md5)
 		{
 			printf ("using CRAM-MD5\n") if ($verbose >= 1);
 			&send_line ($sock, "AUTH CRAM-MD5\n");
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
-			{
-				warn ("AUTH failed '$code $text'.\n");
-				return 0;
-			}
+				{ die ("AUTH CRAM-MD5 failed: $code $text\n"); }
 	
 			my $response = &encode_cram_md5 ($text, $user, $pass);
 			&send_line ($sock, "%s\n", $response);
 			($code, $text) = &get_line ($sock);
 			if ($code != 235)
-			{
-				warn ("AUTH failed: '$code'.\n");
-				return 0;
-			}
+				{ die ("AUTH CRAM-MD5 failed: $code $text\n"); }
 		}
-		# Or try LOGIN method
+		# Eventually try LOGIN method
 		elsif ($features{'AUTH'} =~ /LOGIN/i && $use_login)
 		{
 			printf ("using LOGIN\n") if ($verbose >= 1);
 			&send_line ($sock, "AUTH LOGIN\n");
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
-			{
-				warn ("AUTH failed '$code $text'.\n");
-				return 0;
-			}
+				{ die ("AUTH LOGIN failed: $code $text\n"); }
 			
 			&send_line ($sock, "%s\n", encode_base64 ($user, ""));
 
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
-			{
-				warn ("AUTH failed '$code $text'.\n");
-				return 0;
-			}
+				{ die ("AUTH LOGIN failed: $code $text\n"); }
 			
 			&send_line ($sock, "%s\n", encode_base64 ($pass, ""));
 
 			($code, $text) = &get_line ($sock);
 			if ($code != 235)
-			{
-				warn ("AUTH failed '$code $text'.\n");
-				return 0;
-			}
+				{ die ("AUTH LOGIN failed: $code $text\n"); }
 		}
 		# Or finally PLAIN if nothing else was supported.
 		elsif ($features{'AUTH'} =~ /PLAIN/i && $use_plain)
@@ -348,10 +390,7 @@ sub run_smtp
 				encode_base64 ("$user\0$user\0$pass", ""));
 			($code, $text) = &get_line ($sock);
 			if ($code != 235)
-			{
-				warn ("AUTH failed '$code $text'.\n");
-				return 0;
-			}
+				{ die ("AUTH PLAIN failed: $code $text\n"); }
 		}
 		# Complain otherwise.
 		else
@@ -361,8 +400,7 @@ sub run_smtp
 			return 0;
 		}
 		
-		if ($verbose >= 1)
-		{ printf ("Authentication of $user\@$host succeeded\n"); }
+		printf ("Authentication of $user\@$host succeeded\n") if ($verbose >= 1);
 	}
 	
 	# We can do a relay-test now if a recipient was set.
@@ -489,7 +527,8 @@ sub encode_cram_md5 ($$$)
 	my $ticket = decode_base64($ticket64) or
 		die ("Unable to decode Base64 encoded string '$ticket64'\n");
 	
-	my $password_md5 = hmac_md5_hex($ticket, $password);
+	print "Decoded CRAM-MD5 challenge: $ticket\n" if ($verbose > 1);
+	my $password_md5 = Digest::HMAC_MD5::hmac_md5_hex($ticket, $password);
 	return encode_base64 ("$username $password_md5", "");
 }
 
@@ -587,6 +626,17 @@ sub attach_attachments($@)
 	}
 }
 
+sub safe_attach($$)
+{
+	my ($message, $part) = @_;
+	## Remove some headers when $part is becoming a subpart of $message
+	$part->delete("Date");
+	$part->delete("X-Mailer");
+	$part->attr("MIME-Version" => undef);
+	$message->attach($part);
+	return $message;
+}
+
 sub mime_message($$)
 {
 	my ($type, $data) = @_;
@@ -600,35 +650,47 @@ sub mime_message($$)
 
 sub build_message
 {
-	my $body_inlined;
-	my $message;
+	my ($part_plain, $part_html, $part_body, $message);
 
 	if (defined(@attachments_inline)) {
 		if (not defined($body_html)) {
 			die("Inline attachments (--attach-inline) must be used with --body-html\n");
 		}
-		$body_inlined = MIME::Lite->new(Type => 'multipart/related');
-		$body_inlined->attach(Type => 'text/html', Data => $body_html);
-		attach_attachments($body_inlined, @attachments_inline);
+		$part_html = MIME::Lite->new(Type => 'multipart/related');
+		$part_html->attach(Type => 'text/html', Data => $body_html);
+		attach_attachments($part_html, @attachments_inline);
+		$message = $part_html;
+		# undefine $body_html to prevent confusion in the next if()
 		undef($body_html);
 	}
-	if (defined($body_plain) and (defined($body_html) or defined($body_inlined))) {
-		$message = mime_message("multipart/alternative", undef);
-		$message->attach(Type => 'TEXT', Data => $body_plain);
-		if (defined($body_inlined)) {
-			$message->attach($body_inlined);
-		} elsif (defined($body_html)) {
-			$message->attach(Type => 'text/html', Data => $body_html);
-		}
 
-		if (defined(@attachments)) {
+	if (defined($body_html)) {
+		$part_html = MIME::Lite->new(Type => 'text/html', Data => $body_html);
+		$message = $part_html;
+	}
+
+	if (defined($body_plain)) {
+		$part_plain = MIME::Lite->new(Type => "TEXT", Data => $body_plain);
+		$message = $part_plain;
+	}
+
+	if (defined($part_plain) and defined($part_html)) {
+		$part_body = mime_message("multipart/alternative", undef);
+		safe_attach($part_body, $part_plain);
+		safe_attach($part_body, $part_html);
+		$message = $part_body;
+	}
+
+	if (defined(@attachments)) {
+		if (defined($message)) {
+			# We already have some plaintext and/or html content built
+			# => make it the first part of multipart/mixed
 			my $message_body = $message;
 			$message = mime_message("multipart/mixed", undef);
-			$message->attach($message_body);
+			safe_attach($message, $message_body);
 			attach_attachments($message, @attachments);
-		}
-	} elsif (defined(@attachments)) {
-		if ($#attachments == 0) {
+		} elsif ($#attachments == 0) {
+			# Only one single attachment - let it be the body
 			my ($path, $mime_type) = prepare_attachment($attachments[0]);
 			if (not defined($path)) {
 				die($attachments[0].": File not found. No other message parts defined. Aborting.\n");
@@ -637,30 +699,28 @@ sub build_message
 				Type => $mime_type,
 				Path => $path);
 		} else {
+			# Message consisting only of attachments
 			$message = mime_message("multipart/mixed", undef);
 			attach_attachments($message, @attachments);
 		}
-	} elsif (defined($body_inlined)) {
-		$message = $body_inlined;
-	} elsif (defined($body_html)) {
-		$message = mime_message("text/html", $body_html);
-	} elsif (defined($body_plain)) {
-		$message = mime_message("TEXT", $body_plain);
-	} else {
+	}
+
+	# Last resort - empty plaintext message
+	if (!defined($message)) {
 		$message = mime_message("TEXT", "");
 	}
 
-	$message->attr("From" => $from);
-	$message->attr("To" => join(", ", @to));
-	$message->attr("Subject" => $subject);
-	$message->attr("X-Mailer" => "See http://www.logix.cz/michal/devel/smtp");
-	#$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
+	$message->replace("From" => $from);
+	$message->replace("To" => join(", ", @to));
+	$message->replace("Subject" => $subject);
+	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
+	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
 	return $message;
 }
 
 sub version ()
 {
-	print "smtp-cli $version\n";
+	print "smtp-cli version $version\n";
 	exit (0);
 }
 
@@ -675,7 +735,7 @@ attach files.
 Version: smtp-cli v$version
 
 Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2009
-        http://www.logix.cz/michal/devel/smtp-cli
+        http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
 
@@ -698,12 +758,14 @@ Usage: smtp-cli [--options]
                                 host offers it.
         
         Authentication options (AUTH)
-        --enable-auth           Enable all methods of SMTP authentication.
+        --user=<username>       Username for SMTP authentication.
+        --pass=<password>       Corresponding password.
         --auth-login            Enable only AUTH LOGIN method.
         --auth-plain            Enable only AUTH PLAIN method.
         --auth-cram-md5         Enable only AUTH CRAM-MD5 method.
-        --user=<username>       Username for SMTP authentication.
-        --pass=<password>       Corresponding password.
+        --auth                  Enable all supported methods. This is 
+                                normally not needed, --user enables 
+                                everything as well.
 
         Sender / recipient
         --from=<address>        Address to use in MAIL FROM command.
@@ -729,7 +791,6 @@ Usage: smtp-cli [--options]
                                 be specified after '\@' delimiter.
                                 For instance: --attach mail.log\@text/plain
                                 Parameter can be used multiple times.
-                                
         --attach-inline=<filename>[\@<MIME/Type>]
                                 Attach a given filename (typically a picture)
                                 as a 'related' part to the above 'body-html'. 
@@ -737,11 +798,15 @@ Usage: smtp-cli [--options]
                                 in the 'body-html' contents.
                                 See --attach for details about MIME-Type.
                                 Can be used multiple times.
+        --print-only            Dump the composed MIME message to standard
+                                output. This is useful mainly for debugging
+                                or in the case you need to run the message
+                                through some filter before sending.
 
         Other options
         --verbose[=<number>]    Be more verbose, print the SMTP session.
         --missing-modules-ok    Don't complain about missing optional modules.
-        --version               Print smtp-cli version (i.e. $version)
+        --version               Print: smtp-cli version $version
         --help                  Guess what is this option for ;-)
 ");
 	exit (0);
