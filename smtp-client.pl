@@ -21,22 +21,14 @@ use Net::SSLeay;
 use Digest::HMAC_MD5 qw(hmac_md5_hex);
 use MIME::Base64 qw(encode_base64 decode_base64);
 use Getopt::Long;
-use Term::ReadKey;
 use Socket qw(:DEFAULT :crlf);
-
-## MIME::Lite dependency is optional - used for composing
-## messages from --subject, --body, --attachment
-my $have_mime_lite = eval { require MIME::Lite; 1; };
-
-## File::Type dependency - used for guessing MIME types
-## of attachments
-my $file_type = eval { require File::Type; File::Type->new(); };
 
 my ($user, $pass, $host, $port, 
     $use_login, $use_plain, $use_cram_md5, $use_digest_md5, 
     $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
     $hello_host, $from, @to, $datasrc,
-	$subject, $body_plain, $body_html, @attachments, @attachments_inline, $built_message);
+    $missing_modules_ok, $missing_modules_count,
+    $subject, $body_plain, $body_html, @attachments, @attachments_inline, $built_message);
 
 $host = 'localhost';
 $port = 'smtp(25)';
@@ -49,6 +41,8 @@ $use_digest_md5 = 0;
 $starttls_ok = 1;
 $auth_ok = 0;
 $ehlo_ok = 1;
+$missing_modules_ok = 0;
+$missing_modules_count = 0;
 
 # Get command line options.
 GetOptions (
@@ -73,9 +67,43 @@ GetOptions (
 	'body-html=s' => \$body_html,
 	'attachment|attach=s' => \@attachments,
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
+	'missing-modules-ok' => \$missing_modules_ok,
 	'verbose:1' => \$verbose,
 	'help' => sub { &usage() } );
 
+#### Try to load optional modules
+
+## MIME::Lite dependency is optional
+my $mime_lite = eval { require MIME::Lite; 1; };
+if (not $mime_lite and not $missing_modules_ok) {
+	warn("!!! MIME::Lite -- optional module not found\n");
+	warn("!!! Used for composing messages from --subject, --body, --attachment, etc.\n\n");
+	$missing_modules_count++;
+}
+
+## File::Type dependency is optional
+my $file_type = eval { require File::Type; File::Type->new(); };
+if (not $file_type and not $missing_modules_ok) {
+	warn("!!! File::Type -- optional module not found\n");
+	warn("!!! used for guessing MIME types of attachments\n\n");
+	$missing_modules_count++;
+}
+
+## Term::ReadKey dependency is optional
+my $term_readkey = eval { require Term::ReadKey; 1; };
+if (not $term_readkey and not $missing_modules_ok) {
+	warn("!!! Term::ReadKey -- optional module not found\n");
+	warn("!!! used for hidden reading SMTP password from the terminal\n\n");
+	$missing_modules_count++;
+}
+
+## Advise about --missing-modules-ok parameter
+if ($missing_modules_count) {
+	warn("!!! Use --missing-modules-ok if you don't need the above listed modules\n");
+	warn("!!! and don't want to see this message again.\n\n");
+}
+
+## Accept hostname with port number as host:port
 if ($host =~ /^(.*):(.*)$/)
 {
 	$host = $1;
@@ -85,7 +113,7 @@ if ($host =~ /^(.*):(.*)$/)
 # Build the MIME message if required
 if (defined($subject) or defined($body_plain) or defined($body_html) or
     	defined(@attachments) or defined(@attachments_inline)) {
-	if (not $have_mime_lite) {
+	if (not $mime_lite) {
 		die("Module MIME::Lite is not available. Unable to build the message, sorry.\n".
 		    "Use --data and provide a complete email payload including headers instead.\n");
 	}
@@ -480,16 +508,36 @@ sub basename($)
 	return $parts[$#parts];
 }
 
+sub prepare_attachment($)
+{
+	my $attachment = shift;
+	my ($path, $mime_type);
+
+	if (-f $attachment) {
+		$path = $attachment;
+		$mime_type = guess_mime_type($attachment);
+	} elsif ($attachment =~ /(.*)@([^@]*)$/ and -f $1) {
+		$path = $1;
+		$mime_type = $2;
+	}
+	return ($path, $mime_type);
+}
+
 sub attach_attachments($@) 
 {
 	my $message = shift;
 	my @attachments = @_;
 
 	foreach my $attachment (@attachments) {
+		my ($path, $mime_type) = prepare_attachment($attachment);
+		if (not defined($path)) {
+			warn("$attachment: File not found. Ignoring.\n");
+			next;
+		}
 		$message->attach(
-			Type => guess_mime_type($attachment),
-			Path => $attachment,
-			Id   => basename($attachment),
+			Type => $mime_type,
+			Path => $path,
+			Id   => basename($path),
 		);
 	}
 }
@@ -536,9 +584,13 @@ sub build_message
 		}
 	} elsif (defined(@attachments)) {
 		if ($#attachments == 0) {
+			my ($path, $mime_type) = prepare_attachment($attachments[0]);
+			if (not defined($path)) {
+				die($attachments[0].": File not found. No other message parts defined. Aborting.\n");
+			}
 			$message = MIME::Lite->new(
-				Type => guess_mime_type($attachments[0]),
-				Path => $attachments[0]);
+				Type => $mime_type,
+				Path => $path);
 		} else {
 			$message = mime_message("multipart/mixed", undef);
 			attach_attachments($message, @attachments);
@@ -557,7 +609,7 @@ sub build_message
 	$message->attr("To" => join(", ", @to));
 	$message->attr("Subject" => $subject);
 	$message->attr("X-Mailer" => "See http://www.logix.cz/michal/devel/smtp");
-	$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-client.pl");
+	#$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-client.pl");
 	return $message;
 }
 
@@ -569,60 +621,69 @@ advanced features like STARTTLS and AUTH. Can also create
 messages from components (files, text snippets) and attach
 files.
 
-Author:	Michal Ludvig <michal\@logix.cz> (c) 2003-2008
-	http://www.logix.cz/michal/devel/smtp
+Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2008
+        http://www.logix.cz/michal/devel/smtp
 
 Usage: smtp-client.pl [--options]
 
-	--host=<hostname>	Host name or address of the SMTP server.
-				(default: localhost)
-	--port=<number>		Port where the SMTP server is listening.
-				(default: 25)
-	
-	--hello-host=<string>	String to use in the EHLO/HELO command.
-	--disable-ehlo		Don't use ESMTP EHLO command, only HELO.
-	--force-ehlo		Use EHLO even if server doesn't say ESMTP.
-	
-	Transport encryption (TLS)
-	--disable-starttls	Don't use encryption even if the remote 
-				host offers it.
-	
-	Authentication options (AUTH)
-	--enable-auth		Enable all methods of SMTP authentication.
-	--auth-login		Enable only AUTH LOGIN method.
-	--auth-plain		Enable only AUTH PLAIN method.
-	--auth-cram-md5		Enable only AUTH CRAM-MD5 method.
-	--user=<username>	Username for SMTP authentication.
-	--pass=<password>	Corresponding password.
+        --host=<hostname>       Host name or address of the SMTP server.
+                                (default: localhost)
+        --port=<number>         Port where the SMTP server is listening.
+                                (default: 25)
+        
+        --hello-host=<string>   String to use in the EHLO/HELO command.
+        --disable-ehlo          Don't use ESMTP EHLO command, only HELO.
+        --force-ehlo            Use EHLO even if server doesn't say ESMTP.
+        
+        Transport encryption (TLS)
+        --disable-starttls      Don't use encryption even if the remote 
+                                host offers it.
+        
+        Authentication options (AUTH)
+        --enable-auth           Enable all methods of SMTP authentication.
+        --auth-login            Enable only AUTH LOGIN method.
+        --auth-plain            Enable only AUTH PLAIN method.
+        --auth-cram-md5         Enable only AUTH CRAM-MD5 method.
+        --user=<username>       Username for SMTP authentication.
+        --pass=<password>       Corresponding password.
 
-	Sender / recipient
-	--from=<address>	Address to use in MAIL FROM command.
-	--to=<address>		Address to use in RCPT TO command. Can be 
-						used multiple times.
+        Sender / recipient
+        --from=<address>        Address to use in MAIL FROM command.
+        --to=<address>          Address to use in RCPT TO command. Can be 
+                                used multiple times.
 
-	Send a complete RFC822-compliant email message:
-	--data=<filename>	Name of file to send after DATA command.
-	                        With \"--data=-\" the script will read 
-				standard input (useful e.g. for pipes).
+        Send a complete RFC822-compliant email message:
+        --data=<filename>       Name of file to send after DATA command.
+                                With \"--data=-\" the script will read 
+                                standard input (useful e.g. for pipes).
 
-	Alternatively build email message from provided components:
-	--subject=<subject>	Subject of the message
-	--body-plain=<text|filename>
-	--body-html=<text|filename>
-						Plaintext and/or HTML body of the message
-						If both are provided the message is sent
-						as multipart.
-	--attach=<filename>	Attach a given filename. Can be used multiple times.
-	--attach-inline=<filename>
-						Attach a given filename (typically a picture)
-						as a 'related' part to the above 'body-html'. 
-						Refer to these pictures as <img src='cid:filename'>
-						in the 'body-html' contents.
-						Can be used multiple times.
+        Alternatively build email a message from provided components:
+        --subject=<subject>     Subject of the message
+        --body-plain=<text|filename>
+        --body-html=<text|filename>
+                                Plaintext and/or HTML body of the message
+                                If both are provided the message is sent
+                                as multipart.
+        --attach=<filename>[\@<MIME/Type>]
+                                Attach a given filename. 
+                                MIME-Type of the attachment is guessed 
+                                by default guessed but can optionally
+                                be specified after '\@' delimiter.
+                                For instance: --attach mail.log\@text/plain
+                                Parameter can be used multiple times.
+                                
+        --attach-inline=<filename>[\@<MIME/Type>]
+                                Attach a given filename (typically a picture)
+                                as a 'related' part to the above 'body-html'. 
+                                Refer to these pictures as <img src='cid:filename'>
+                                in the 'body-html' contents.
+                                See --attach for details about MIME-Type.
+                                Can be used multiple times.
 
-	Other options
-	--verbose[=<number>]	Be more verbose, print the SMTP session.
-	--help			Guess what is this option for ;-)
+        Other options
+        --verbose[=<number>]    Be more verbose, print the SMTP session.
+        --missing-modules-ok    Don't complain about missing optional modules.
+        --help                  Guess what is this option for ;-)
 ");
 	exit (0);
 }
