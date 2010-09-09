@@ -2,15 +2,17 @@
 
 # 
 # Simple SMTP client with STARTTLS and AUTH support.
-# Michal Ludvig <michal@logix.cz>, 2003-2006
+# Michal Ludvig <michal@logix.cz>, 2003-2008
 # See http://www.logix.cz/michal/devel/smtp for details.
 # Thanks to all contributors for ideas and fixes!
 # 
 
 # 
-# This program can be freely distributed, used and modified
-# without any restrictions. It's a public domain.
+# This program is licensed under GNU Public License v2 (GPLv2)
 # 
+
+## Require Perl 5.8 or higher -> we need open(.., .., \$variable) construct
+require 5.008;
 
 use strict;
 use IO::Socket::INET;
@@ -22,10 +24,19 @@ use Getopt::Long;
 use Term::ReadKey;
 use Socket qw(:DEFAULT :crlf);
 
+## MIME::Lite dependency is optional - used for composing
+## messages from --subject, --body, --attachment
+my $have_mime_lite = eval { require MIME::Lite; 1; };
+
+## File::Type dependency - used for guessing MIME types
+## of attachments
+my $file_type = eval { require File::Type; File::Type->new(); };
+
 my ($user, $pass, $host, $port, 
     $use_login, $use_plain, $use_cram_md5, $use_digest_md5, 
     $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
-    $hello_host, $from, @to, $datasrc);
+    $hello_host, $from, @to, $datasrc,
+	$subject, $body_plain, $body_html, @attachments, @attachments_inline, $built_message);
 
 $host = 'localhost';
 $port = 'smtp(25)';
@@ -40,7 +51,8 @@ $auth_ok = 0;
 $ehlo_ok = 1;
 
 # Get command line options.
-GetOptions ('host=s' => \$host, 'server=s' => \$host,
+GetOptions (
+	'host|server=s' => \$host,
 	'port=i' => \$port, 
 	'user=s' => \$user, 'password=s' => \$pass,
 	'auth-login' => \$use_login, 
@@ -56,6 +68,11 @@ GetOptions ('host=s' => \$host, 'server=s' => \$host,
 	'from|mail-from=s' => \$from,
 	'to|rcpt-to=s' => \@to,
 	'data=s' => \$datasrc,
+	'subject=s' => \$subject,
+	'body|body-plain=s' => \$body_plain,
+	'body-html=s' => \$body_html,
+	'attachment|attach=s' => \@attachments,
+	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'verbose:1' => \$verbose,
 	'help' => sub { &usage() } );
 
@@ -65,6 +82,37 @@ if ($host =~ /^(.*):(.*)$/)
 	$port = $2;
 }
 
+# Build the MIME message if required
+if (defined($subject) or defined($body_plain) or defined($body_html) or
+    	defined(@attachments) or defined(@attachments_inline)) {
+	if (not $have_mime_lite) {
+		die("Module MIME::Lite is not available. Unable to build the message, sorry.\n".
+		    "Use --data and provide a complete email payload including headers instead.\n");
+	}
+	if (defined($datasrc)) {
+		die("Requested building a message and at the same time used --data parameter.\n".
+		    "That's not possible, sorry.\n");
+	}
+	if (defined($body_plain) and -f $body_plain) {
+		local $/=undef;
+		open(FILE, $body_plain);
+		$body_plain = <FILE>;
+		close(FILE);
+	}
+	if (defined($body_html) and -f $body_html) {
+		local $/=undef;
+		open(FILE, $body_html);
+		$body_html = <FILE>;
+		close(FILE);
+	}
+	my $message = &build_message();
+
+	open(BUILT_MESSAGE, "+>", \$built_message);
+	$datasrc = "///built_message";
+	$message->print(\*BUILT_MESSAGE);
+	seek(BUILT_MESSAGE, 0, 0);
+
+}
 # If at least one --auth-* option was given, enable AUTH.
 if ($use_login + $use_plain + $use_cram_md5 + $use_digest_md5 > 0)
 	{ $auth_ok = 1; }
@@ -277,7 +325,11 @@ sub run_smtp
 	# Wow, we should even send something!
 	if (defined ($datasrc))
 	{
-		if ($datasrc eq "-")
+		if ($datasrc eq "///built_message")
+		{
+			*MAIL = *BUILT_MESSAGE;
+		}
+		elsif ($datasrc eq "-")
 		{
 			*MAIL = *STDIN;
 		}
@@ -401,12 +453,123 @@ sub say_hello ($$$$)
 	return 1;
 }
 
+sub guess_mime_type($)
+{
+	my $filename = shift;
+	if (defined($file_type)) {
+		## Use File::Type if possible
+		return $file_type->mime_type($filename);
+	} else {
+		## Module File::Type is not available
+		## Still recognise some common extensions
+		return "image/jpeg" if ($filename =~ /\.jpe?g/i);
+		return "image/gif" if ($filename =~ /\.gif/i);
+		return "image/png" if ($filename =~ /\.png/i);
+		return "text/plain" if ($filename =~ /\.txt/i);
+		return "application/zip" if ($filename =~ /\.zip/i);
+		return "application/x-gzip" if ($filename =~ /\.t?gz/i);
+		return "application/x-bzip" if ($filename =~ /\.t?bz2?/i);
+	}
+	return "application/octet-stream";
+}
+
+sub basename($)
+{
+	my $path = shift;
+	my @parts = split(/\//, $path);
+	return $parts[$#parts];
+}
+
+sub attach_attachments($@) 
+{
+	my $message = shift;
+	my @attachments = @_;
+
+	foreach my $attachment (@attachments) {
+		$message->attach(
+			Type => guess_mime_type($attachment),
+			Path => $attachment,
+			Id   => basename($attachment),
+		);
+	}
+}
+
+sub mime_message($$)
+{
+	my ($type, $data) = @_;
+	## MIME::Lite doesn't allow setting Type and Data once the 
+	## object is created. Well, maybe it does but I don't know how.
+	my $message = MIME::Lite->new(
+		Type	=> $type,
+		Data	=> $data);
+	return $message;
+}
+
+sub build_message
+{
+	my $body_inlined;
+	my $message;
+
+	if (defined(@attachments_inline)) {
+		if (not defined($body_html)) {
+			die("Inline attachments (--attach-inline) must be used with --body-html\n");
+		}
+		$body_inlined = MIME::Lite->new(Type => 'multipart/related');
+		$body_inlined->attach(Type => 'text/html', Data => $body_html);
+		attach_attachments($body_inlined, @attachments_inline);
+		undef($body_html);
+	}
+	if (defined($body_plain) and (defined($body_html) or defined($body_inlined))) {
+		$message = mime_message("multipart/alternative", undef);
+		$message->attach(Type => 'TEXT', Data => $body_plain);
+		if (defined($body_inlined)) {
+			$message->attach($body_inlined);
+		} elsif (defined($body_html)) {
+			$message->attach(Type => 'text/html', Data => $body_html);
+		}
+
+		if (defined(@attachments)) {
+			my $message_body = $message;
+			$message = mime_message("multipart/mixed", undef);
+			$message->attach($message_body);
+			attach_attachments($message, @attachments);
+		}
+	} elsif (defined(@attachments)) {
+		if ($#attachments == 0) {
+			$message = MIME::Lite->new(
+				Type => guess_mime_type($attachments[0]),
+				Path => $attachments[0]);
+		} else {
+			$message = mime_message("multipart/mixed", undef);
+			attach_attachments($message, @attachments);
+		}
+	} elsif (defined($body_inlined)) {
+		$message = $body_inlined;
+	} elsif (defined($body_html)) {
+		$message = mime_message("text/html", $body_html);
+	} elsif (defined($body_plain)) {
+		$message = mime_message("TEXT", $body_plain);
+	} else {
+		$message = mime_message("TEXT", "");
+	}
+
+	$message->attr("From" => $from);
+	$message->attr("To" => join(", ", @to));
+	$message->attr("Subject" => $subject);
+	$message->attr("X-Mailer" => "See http://www.logix.cz/michal/devel/smtp");
+	$message->attr("Message-ID" => time()."-".int(rand(999999))."\@smtp-client.pl");
+	return $message;
+}
+
 sub usage ()
 {
-	printf ("Simple SMTP client written in Perl that supports some
-advanced features like STARTTLS and AUTH. 
+	printf (
+"Simple SMTP client written in Perl that supports some
+advanced features like STARTTLS and AUTH. Can also create 
+messages from components (files, text snippets) and attach
+files.
 
-Author:	Michal Ludvig <michal\@logix.cz> (c) 2003-2006
+Author:	Michal Ludvig <michal\@logix.cz> (c) 2003-2008
 	http://www.logix.cz/michal/devel/smtp
 
 Usage: smtp-client.pl [--options]
@@ -420,9 +583,11 @@ Usage: smtp-client.pl [--options]
 	--disable-ehlo		Don't use ESMTP EHLO command, only HELO.
 	--force-ehlo		Use EHLO even if server doesn't say ESMTP.
 	
+	Transport encryption (TLS)
 	--disable-starttls	Don't use encryption even if the remote 
 				host offers it.
 	
+	Authentication options (AUTH)
 	--enable-auth		Enable all methods of SMTP authentication.
 	--auth-login		Enable only AUTH LOGIN method.
 	--auth-plain		Enable only AUTH PLAIN method.
@@ -430,13 +595,32 @@ Usage: smtp-client.pl [--options]
 	--user=<username>	Username for SMTP authentication.
 	--pass=<password>	Corresponding password.
 
+	Sender / recipient
 	--from=<address>	Address to use in MAIL FROM command.
-	--to=<address>		Address to use in RCPT TO command.
+	--to=<address>		Address to use in RCPT TO command. Can be 
+						used multiple times.
 
+	Send a complete RFC822-compliant email message:
 	--data=<filename>	Name of file to send after DATA command.
 	                        With \"--data=-\" the script will read 
 				standard input (useful e.g. for pipes).
 
+	Alternatively build email message from provided components:
+	--subject=<subject>	Subject of the message
+	--body-plain=<text|filename>
+	--body-html=<text|filename>
+						Plaintext and/or HTML body of the message
+						If both are provided the message is sent
+						as multipart.
+	--attach=<filename>	Attach a given filename. Can be used multiple times.
+	--attach-inline=<filename>
+						Attach a given filename (typically a picture)
+						as a 'related' part to the above 'body-html'. 
+						Refer to these pictures as <img src='cid:filename'>
+						in the 'body-html' contents.
+						Can be used multiple times.
+
+	Other options
 	--verbose[=<number>]	Be more verbose, print the SMTP session.
 	--help			Guess what is this option for ;-)
 ");
