@@ -868,6 +868,9 @@ Usage: smtp-cli [--options]
         --missing-modules-ok    Don't complain about missing optional modules.
         --version               Print: smtp-cli version $version
         --help                  Guess what is this option for ;-)
+
+PayPal donations: http://smtp-cli.logix.cz/donate
+                  TIA for your support!
 ");
 	exit (0);
 }
