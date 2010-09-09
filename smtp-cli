@@ -17,6 +17,7 @@ my $version = "2.7";
 #     for example --from="Michal Ludvig <michal@logix.cz>"
 #   - Support for --mail-from and --rcpt-to addresses independent
 #     on --from, --to, --cc and --bcc
+#   - Fixed warnings in Perl 5.12
 #
 # * Version 2.6    (2009-08-05)
 #   - Message building fixed for plaintext+attachment case.
@@ -190,7 +191,7 @@ if ($host =~ /^(.*):(.*)$/)
 
 # Build the MIME message if required
 if (defined($subject) or defined($body_plain) or defined($body_html) or
-    	defined(@attachments) or defined(@attachments_inline)) {
+		@attachments or @attachments_inline) {
 	if (not $mime_lite) {
 		die("Module MIME::Lite is not available. Unable to build the message, sorry.\n".
 		    "Use --data and provide a complete email payload including headers instead.\n");
@@ -691,7 +692,7 @@ sub build_message
 {
 	my ($part_plain, $part_html, $part_body, $message);
 
-	if (defined(@attachments_inline)) {
+	if (@attachments_inline) {
 		if (not defined($body_html)) {
 			die("Inline attachments (--attach-inline) must be used with --body-html\n");
 		}
@@ -720,7 +721,7 @@ sub build_message
 		$message = $part_body;
 	}
 
-	if (defined(@attachments)) {
+	if (@attachments) {
 		if (defined($message)) {
 			# We already have some plaintext and/or html content built
 			# => make it the first part of multipart/mixed
