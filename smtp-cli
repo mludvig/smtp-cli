@@ -2,15 +2,22 @@
 
 # 
 # Command line SMTP client with STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2009
+# Michal Ludvig <michal@logix.cz>, 2003-2010
 # See http://www.logix.cz/michal/devel/smtp-cli for details.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "2.6";
+my $version = "2.7";
 
 # 
 # ChangeLog:
+# * Version 2.7    (2010-09-08)
+#   - Added support for Cc header (--cc=...)
+#   - Addressess (From, To, Cc) can now contain a "display name",
+#     for example --from="Michal Ludvig <michal@logix.cz>"
+#   - Support for --mail-from and --rcpt-to addresses independent
+#     on --from, --to, --cc and --bcc
+#
 # * Version 2.6    (2009-08-05)
 #   - Message building fixed for plaintext+attachment case.
 #   - Auto-enable AUTH as soon as --user parameter is used.
@@ -54,7 +61,8 @@ use Socket qw(:DEFAULT :crlf);
 my ($user, $pass, $host, $port, $addr_family,
     $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
-    $hello_host, $from, @to, $datasrc,
+    $hello_host, $datasrc,
+	$mail_from, @rcpt_to, $from, @to, @cc, @bcc,
     $missing_modules_ok, $missing_modules_count,
     $subject, $body_plain, $body_html, $print_only,
 	@attachments, @attachments_inline,
@@ -91,8 +99,12 @@ GetOptions (
 	'auth|enable-auth' => \$auth_ok,
 	'disable-starttls|disable-tls|disable-ssl' => 
 		sub { $starttls_ok = 0; },
-	'from|mail-from=s' => \$from,
-	'to|rcpt-to=s' => \@to,
+	'mail-from=s' => \$mail_from,
+	'rcpt-to=s' => \@rcpt_to,
+	'from=s' => \$from,
+	'to=s' => \@to,
+	'cc=s' => \@cc,
+	'bcc=s' => \@bcc,
 	'data=s' => \$datasrc,
 	'subject=s' => \$subject,
 	'body|body-plain=s' => \$body_plain,
@@ -226,6 +238,24 @@ elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 == 0))
 	$use_login = 1;
 	$use_plain = 1;
 	$use_cram_md5 = 1 if ($have_hmac_md5);
+}
+
+# Extract $mail_from address from $from
+if (not defined($mail_from) and defined($from)) {
+	$mail_from = &find_email_addr($from) or
+		die ("The --from string does not contain a valid email address: $from\n");
+}
+
+# Extract @rcpt_to list from @to, @cc and @bcc
+if (not @rcpt_to) {
+	foreach my $rcpt (@to, @cc, @bcc) {
+		my $rcpt_addr = &find_email_addr($rcpt);
+		if (not defined($rcpt_addr)) {
+			warn("No valid email address found in: $rcpt\n");
+			next;
+		}
+		push(@rcpt_to, $rcpt_addr);
+	}
 }
 
 # Exit if user haven't specified username for AUTH.
@@ -404,29 +434,29 @@ sub run_smtp
 	}
 	
 	# We can do a relay-test now if a recipient was set.
-	if ($#to >= 0)
+	if ($#rcpt_to >= 0)
 	{
-		if (!defined ($from))
+		if (!defined ($mail_from))
 		{
 			warn ("From: address not set. Using empty one.\n");
-			$from = "";
+			$mail_from = "";
 		}
-		&send_line ($sock, "MAIL FROM: <%s>\n", $from);
+		&send_line ($sock, "MAIL FROM: <%s>\n", $mail_from);
 		($code, $text) = &get_line ($sock);
 		if ($code != 250)
 		{
-			warn ("MAIL FROM failed: '$code $text'\n");
+			warn ("MAIL FROM <$mail_from> failed: '$code $text'\n");
 			return 0;
 		}
 
 		my $i;
-		for ($i=0; $i <= $#to; $i++)
+		for ($i=0; $i <= $#rcpt_to; $i++)
 		{
-			&send_line ($sock, "RCPT TO: <%s>\n", $to[$i]);
+			&send_line ($sock, "RCPT TO: <%s>\n", $rcpt_to[$i]);
 			($code, $text) = &get_line ($sock);
 			if ($code != 250)
 			{
-				warn ("RCPT TO <".$to[$i]."> ".
+				warn ("RCPT TO <".$rcpt_to[$i]."> ".
 				      "failed: '$code $text'\n");
 				return 0;
 			}
@@ -563,6 +593,15 @@ sub say_hello ($$$$)
 	}
 
 	return 1;
+}
+
+sub find_email_addr($)
+{
+	my $addr = shift;
+	if ($addr =~ /\b([A-Z0-9._%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
+		return $1;
+	}
+	return undef;
 }
 
 sub guess_mime_type($)
@@ -712,6 +751,7 @@ sub build_message
 
 	$message->replace("From" => $from);
 	$message->replace("To" => join(", ", @to));
+	$message->replace("Cc" => join(", ", @cc));
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
 	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
@@ -768,9 +808,28 @@ Usage: smtp-cli [--options]
                                 everything as well.
 
         Sender / recipient
-        --from=<address>        Address to use in MAIL FROM command.
-        --to=<address>          Address to use in RCPT TO command. Can be 
+        --from=\"Display Name <add\@re.ss>\"
+                                Sender's name address (or address only).
+        --to=\"Display Name <add\@re.ss>\"
+        --cc=\"Display Name <add\@re.ss>\"
+        --bcc=\"Display Name <add\@re.ss>\"
+                                Message recipients. Each parameter can be
                                 used multiple times.
+                                The --bcc addresses won't apprear in
+                                the composed message.
+
+        SMTP Envelope sender / recipient
+        (rarely needed, use --from, --to, --cc and --bcc instead)
+        --mail-from=<address>   Address to use in MAIL FROM command.
+                                Use --from instead, unless you want
+                                a different address in the envelope and
+                                in the headers.
+        --rcpt-to=<address>     Address to use in RCPT TO command. Can be
+                                used multiple times. Normally not needed,
+                                use --to, --cc and --bcc instead.
+                                If set the --to, --cc and --bcc will only
+                                be used for composing the message body and
+                                not for delivering the messages.
 
         Send a complete RFC822-compliant email message:
         --data=<filename>       Name of file to send after DATA command.
