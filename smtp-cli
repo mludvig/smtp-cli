@@ -61,7 +61,7 @@ use Socket qw(:DEFAULT :crlf);
 
 my ($user, $pass, $host, $port, $addr_family,
     $use_login, $use_plain, $use_cram_md5,
-    $ehlo_ok, $auth_ok, $starttls_ok, $verbose, 
+    $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
 	$mail_from, @rcpt_to, $from, @to, @cc, @bcc,
     $missing_modules_ok, $missing_modules_count,
@@ -78,6 +78,7 @@ $use_login = 0;
 $use_plain = 0;
 $use_cram_md5 = 0;
 $starttls_ok = 1;
+$ssl = undef;
 $auth_ok = 0;
 $ehlo_ok = 1;
 $missing_modules_ok = 0;
@@ -100,6 +101,8 @@ GetOptions (
 	'auth|enable-auth' => \$auth_ok,
 	'disable-starttls|disable-tls|disable-ssl' => 
 		sub { $starttls_ok = 0; },
+	'ssl' => sub { $ssl = 1 },
+	'disable-ssl' => sub { $ssl = 0 },
 	'mail-from=s' => \$mail_from,
 	'rcpt-to=s' => \@rcpt_to,
 	'from=s' => \$from,
@@ -124,7 +127,7 @@ GetOptions (
 my $have_ssl = eval { require IO::Socket::SSL; require Net::SSLeay; 1; };
 if (not $have_ssl and not $missing_modules_ok) {
 	warn("!!! IO::Socket::SSL and/or Net::SSLeay modules are not found\n");
-	warn("!!! These modules are required for STARTTLS support\n");
+	warn("!!! These modules are required for SSL and STARTTLS support\n");
 	$missing_modules_count += 2;
 }
 
@@ -187,6 +190,11 @@ if ($host =~ /^(.*):(.*)$/)
 {
 	$host = $1;
 	$port = $2;
+}
+
+## Automatically start in SSL mode if port == 465 (SSMTP)
+if (not defined($ssl)) {
+	$ssl = ($port == 465);
 }
 
 # Build the MIME message if required
@@ -305,6 +313,11 @@ if ($verbose >= 1) {
 		$sock->peerhost(), $sock->peerport());
 }
 
+if ($ssl) {
+	printf ("Starting SMTP/SSL...\n") if ($verbose >= 1);
+	&socket_to_ssl($sock);
+}
+
 my ($code, $text);
 my (%features);
 
@@ -342,26 +355,11 @@ sub run_smtp
 	{
 		printf ("Starting TLS...\n") if ($verbose >= 1);
 
-		# Do Net::SSLeay initialization
-		Net::SSLeay::load_error_strings();
-		Net::SSLeay::SSLeay_add_ssl_algorithms();
-		Net::SSLeay::randomize();
-	
 		&send_line ($sock, "STARTTLS\n");
 		($code, $text) = &get_line ($sock);
 		die ("Unknown STARTTLS response '$code'.\n") if ($code != 220);
-		
-		if (! IO::Socket::SSL::socket_to_SSL($sock, 
-			SSL_version => 'SSLv3 TLSv1'))
-		{
-			die ("STARTTLS: ".IO::Socket::SSL::errstr()."\n"); 
-		}
-		
-		if ($verbose >= 1)
-		{
-			printf ("Using cipher: %s\n", $sock->get_cipher ());
-			printf ("%s", $sock->dump_peer_certificate());
-		}
+
+		&socket_to_ssl($sock);
 
 		# Send EHLO again (required by the SMTP standard).
 		&say_hello ($sock, $ehlo_ok, $hello_host, \%features) or return 0;
@@ -549,6 +547,30 @@ sub send_line ($@)
 		{ printf ("> "); printf (@args); }
 	$args[0] =~ s/\n/$CRLF/g;
 	$socket->printf (@args);
+}
+
+sub socket_to_ssl($)
+{
+	if (!$have_ssl) {
+		die ("SSL/TLS support is not available due to missing modules. Sorry.\n");
+	}
+
+	# Do Net::SSLeay initialization
+	Net::SSLeay::load_error_strings();
+	Net::SSLeay::SSLeay_add_ssl_algorithms();
+	Net::SSLeay::randomize();
+
+	if (! IO::Socket::SSL::socket_to_SSL($sock,
+		SSL_version => 'SSLv3 TLSv1'))
+	{
+		die ("SSL/TLS: ".IO::Socket::SSL::errstr()."\n");
+	}
+
+	if ($verbose >= 1)
+	{
+		printf ("Using cipher: %s\n", $sock->get_cipher ());
+		printf ("%s", $sock->dump_peer_certificate());
+	}
 }
 
 # Helper function to encode CRAM-MD5 challenge
@@ -797,6 +819,9 @@ Usage: smtp-cli [--options]
         Transport encryption (TLS)
         --disable-starttls      Don't use encryption even if the remote 
                                 host offers it.
+        --ssl                   Start in SMTP/SSL mode (aka SSMTP).
+                                Default when --port=465
+        --disable-ssl           Don't start SSMTP even if --port=465
         
         Authentication options (AUTH)
         --user=<username>       Username for SMTP authentication.
