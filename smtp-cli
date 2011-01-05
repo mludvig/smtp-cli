@@ -1,16 +1,20 @@
 #!/usr/bin/perl
 
 # 
-# Command line SMTP client with STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2010
-# See http://www.logix.cz/michal/devel/smtp-cli for details.
+# Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
+# Michal Ludvig <michal@logix.cz>, 2003-2011
+# See http://smtp-cli.logix.cz for details.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "2.7";
+my $version = "2.8";
 
 # 
 # ChangeLog:
+# * Version 2.8    (2011-01-05)
+#   - Added --ssl to support for SSMTP (SMTP over SSL). This is
+#     turned on by default when --port=465.
+#
 # * Version 2.7    (2010-09-08)
 #   - Added support for Cc header (--cc=...)
 #   - Addressess (From, To, Cc) can now contain a "display name",
