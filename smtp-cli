@@ -801,7 +801,7 @@ attach files.
 
 Version: smtp-cli v$version
 
-Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2009
+Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2011
         http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
@@ -899,7 +899,8 @@ Usage: smtp-cli [--options]
         --help                  Guess what is this option for ;-)
 
 PayPal donations: http://smtp-cli.logix.cz/donate
-                  TIA for your support!
+                  Thanks in advance for your support!
+
 ");
 	exit (0);
 }
