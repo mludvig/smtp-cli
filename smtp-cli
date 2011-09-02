@@ -11,6 +11,11 @@ my $version = "2.8";
 
 # 
 # ChangeLog:
+# * Version 2.9    (2011-09-02)
+#   - Fixed problem when using IPv6 addresses with --server.
+#     For example with --server 2001:db8::123 it was connecting
+#     to server 2001:db8:: port 123. Fixed now.
+#
 # * Version 2.8    (2011-01-05)
 #   - Added --ssl to support for SSMTP (SMTP over SSL). This is
 #     turned on by default when --port=465.
@@ -190,7 +195,10 @@ if ($missing_modules_count) {
 }
 
 ## Accept hostname with port number as host:port
-if ($host =~ /^(.*):(.*)$/)
+## Either it's a hostname:port or 1.2.3.4:port or [2001:db8::1]:port.
+## Don't parse 2001:db8::1 as $host=2001:db8:: and $port=1!
+if (($host =~ /^([^:]+):([:alnum:]+)$/) or
+    ($host =~ /^\[([[:xdigit:]:]+)\]:([:alnum:]+)$/))
 {
 	$host = $1;
 	$port = $2;
@@ -806,8 +814,10 @@ Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2011
 
 Usage: smtp-cli [--options]
 
-        --host=<hostname>       Host name or address of the SMTP server.
-                                (default: localhost)
+        --host=<hostname>[:<port>]
+                                Host name or address of the SMTP server.
+                                May include the port after colon, alternativelu
+                                use --port.  (default: localhost)
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
 
