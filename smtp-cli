@@ -14,6 +14,7 @@ my $version = "2.9";
 # * Version x.x    (2011-09-18)
 #   - Use "Content-Disposition: attachment" for all attachments
 #     unless --attach-inline was used.
+#   - No longer default to --server=localhost
 #
 # * Version 2.9    (2011-09-02)
 #   - Fixed problem when using IPv6 addresses with --server.
@@ -82,7 +83,7 @@ my ($user, $pass, $host, $port, $addr_family,
 	@attachments, @attachments_inline,
     $sock, $built_message);
 
-$host = 'localhost';
+$host = undef;
 $port = 'smtp(25)';
 $addr_family = AF_UNSPEC;
 $hello_host = 'localhost';
@@ -196,6 +197,11 @@ if (not $have_hmac_md5 and not $missing_modules_ok) {
 if ($missing_modules_count) {
 	warn("!!! Use --missing-modules-ok if you don't need the above listed modules\n");
 	warn("!!! and don't want to see this message again.\n\n");
+}
+
+## Make sure we've got a server name to connect to
+if (not defined($host)) {
+	die("Error: Specify the SMTP server with --server=hostname[:port]\n");
 }
 
 ## Accept hostname with port number as host:port
@@ -815,15 +821,15 @@ attach files.
 
 Version: smtp-cli v$version
 
-Author: Michal Ludvig <michal\@logix.cz> (c) 2003-2011
+Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2011
         http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
 
-        --host=<hostname>[:<port>]
-                                Host name or address of the SMTP server.
-                                May include the port after colon, alternativelu
-                                use --port.  (default: localhost)
+        --server=<hostname>[:<port>]
+                                Host name or IP address of the SMTP server.
+                                May include the port after colon, alternatively
+                                use --port.
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
 
