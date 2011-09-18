@@ -11,6 +11,10 @@ my $version = "2.9";
 
 # 
 # ChangeLog:
+# * Version x.x    (2011-09-18)
+#   - Use "Content-Disposition: attachment" for all attachments
+#     unless --attach-inline was used.
+#
 # * Version 2.9    (2011-09-02)
 #   - Fixed problem when using IPv6 addresses with --server.
 #     For example with --server 2001:db8::123 it was connecting
@@ -681,9 +685,10 @@ sub prepare_attachment($)
 	return ($path, $mime_type);
 }
 
-sub attach_attachments($@) 
+sub attach_attachments($$@)
 {
 	my $message = shift;
+	my $disposition = shift;
 	my @attachments = @_;
 
 	foreach my $attachment (@attachments) {
@@ -696,6 +701,7 @@ sub attach_attachments($@)
 			Type => $mime_type,
 			Path => $path,
 			Id   => basename($path),
+			Disposition => $disposition,
 		);
 	}
 }
@@ -732,7 +738,7 @@ sub build_message
 		}
 		$part_html = MIME::Lite->new(Type => 'multipart/related');
 		$part_html->attach(Type => 'text/html', Data => $body_html);
-		attach_attachments($part_html, @attachments_inline);
+		attach_attachments($part_html, "inline", @attachments_inline);
 		$message = $part_html;
 		# undefine $body_html to prevent confusion in the next if()
 		undef($body_html);
@@ -762,7 +768,7 @@ sub build_message
 			my $message_body = $message;
 			$message = mime_message("multipart/mixed", undef);
 			safe_attach($message, $message_body);
-			attach_attachments($message, @attachments);
+			attach_attachments($message, "attachment", @attachments);
 		} elsif ($#attachments == 0) {
 			# Only one single attachment - let it be the body
 			my ($path, $mime_type) = prepare_attachment($attachments[0]);
@@ -775,7 +781,7 @@ sub build_message
 		} else {
 			# Message consisting only of attachments
 			$message = mime_message("multipart/mixed", undef);
-			attach_attachments($message, @attachments);
+			attach_attachments($message, "attachment", @attachments);
 		}
 	}
 
