@@ -205,7 +205,13 @@ if ($missing_modules_count) {
 
 ## Make sure we've got a server name to connect to
 if (not defined($host)) {
-	die("Error: Specify the SMTP server with --server=hostname[:port]\n");
+	if (not $print_only) {
+		die("Error: Specify the SMTP server with --server=hostname[:port]\n");
+	} else {
+		# We're printing to stdout only, let's assign just about any
+		# hostname to satisfy the next few tests.
+		$host = "localhost";
+	}
 }
 
 ## Accept hostname with port number as host:port
