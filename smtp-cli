@@ -743,10 +743,12 @@ sub safe_attach($$)
 sub mime_message($$)
 {
 	my ($type, $data) = @_;
-	## MIME::Lite doesn't allow setting Type and Data once the 
-	## object is created. Well, maybe it does but I don't know how.
+
+	## Set QP encoding for text/* types, let MIME::Lite decide for all other types.
+	my $encoding = $type =~ /^text\// ? "quoted-printable" : undef;
 	my $message = MIME::Lite->new(
 		Type	=> $type,
+		Encoding=> $encoding,
 		Data	=> $data);
 	$message->attr('content-type.charset' => $charset) if (($type =~ /^text\//i) and defined($charset));
 	return $message;
