@@ -16,6 +16,7 @@ my $version = "2.9";
 #   - Use "Content-Disposition: attachment" for all attachments
 #     unless --attach-inline was used.
 #   - No longer default to --server=localhost
+#   - Support for --charset=<charset> affecting all text/* parts.
 #
 # * Version 2.9    (2011-09-02)
 #   - Fixed problem when using IPv6 addresses with --server.
@@ -80,7 +81,7 @@ my ($user, $pass, $host, $port, $addr_family,
     $hello_host, $datasrc,
     $mail_from, @rcpt_to, $from, @to, @cc, @bcc,
     $missing_modules_ok, $missing_modules_count,
-    $subject, $body_plain, $body_html, $print_only,
+    $subject, $body_plain, $body_html, $charset, $print_only,
     @attachments, @attachments_inline,
     $ssl_ca_file, $ssl_ca_path,
     $sock, $built_message);
@@ -99,6 +100,7 @@ $auth_ok = 0;
 $ehlo_ok = 1;
 $missing_modules_ok = 0;
 $missing_modules_count = 0;
+$charset = undef;
 $print_only = 0;
 
 # Get command line options.
@@ -129,6 +131,7 @@ GetOptions (
 	'subject=s' => \$subject,
 	'body|body-plain=s' => \$body_plain,
 	'body-html=s' => \$body_html,
+	'charset=s' => \$charset,
 	'attachment|attach=s' => \@attachments,
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'print-only' => \$print_only,
@@ -745,6 +748,7 @@ sub mime_message($$)
 	my $message = MIME::Lite->new(
 		Type	=> $type,
 		Data	=> $data);
+	$message->attr('content-type.charset' => $charset) if (($type =~ /^text\//i) and defined($charset));
 	return $message;
 }
 
@@ -765,12 +769,12 @@ sub build_message
 	}
 
 	if (defined($body_html)) {
-		$part_html = MIME::Lite->new(Type => 'text/html', Data => $body_html);
+		$part_html = mime_message('text/html', $body_html);
 		$message = $part_html;
 	}
 
 	if (defined($body_plain)) {
-		$part_plain = MIME::Lite->new(Type => "TEXT", Data => $body_plain);
+		$part_plain = mime_message('text/plain', $body_plain);
 		$message = $part_plain;
 	}
 
@@ -918,6 +922,8 @@ Usage: smtp-cli [--options]
                                 Plaintext and/or HTML body of the message
                                 If both are provided the message is sent
                                 as multipart.
+        --charset=<charset>     Character set used for Subject and Body,
+                                for example UTF-8, ISO-8859-2, KOI8-R, etc.
         --attach=<filename>[\@<MIME/Type>]
                                 Attach a given filename. 
                                 MIME-Type of the attachment is guessed 
