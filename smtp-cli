@@ -7,11 +7,11 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "2.9";
+my $version = "3.0"
 
 # 
 # ChangeLog:
-# * Version x.x    (2011-09-18)
+# * Version 3.0    (2012-01-24)
 #   - Support for server SSL verification agains CA root cert.
 #   - Use "Content-Disposition: attachment" for all attachments
 #     unless --attach-inline was used.
