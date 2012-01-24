@@ -17,6 +17,7 @@ my $version = "2.9";
 #     unless --attach-inline was used.
 #   - No longer default to --server=localhost
 #   - Support for --charset=<charset> affecting all text/* parts.
+#   - Ensure "To: undisclosed-recipients:;" if sending only to Bcc.
 #
 # * Version 2.9    (2011-09-02)
 #   - Fixed problem when using IPv6 addresses with --server.
@@ -232,6 +233,29 @@ if (not defined($ssl)) {
 	$ssl = ($port == 465);
 }
 
+# Extract $mail_from address from $from
+if (not defined($mail_from) and defined($from)) {
+	$mail_from = &find_email_addr($from) or
+		die ("The --from string does not contain a valid email address: $from\n");
+}
+
+# Extract @rcpt_to list from @to, @cc and @bcc
+if (not @rcpt_to) {
+	foreach my $rcpt (@to, @cc, @bcc) {
+		my $rcpt_addr = &find_email_addr($rcpt);
+		if (not defined($rcpt_addr)) {
+			warn("No valid email address found in: $rcpt\n");
+			next;
+		}
+		push(@rcpt_to, $rcpt_addr);
+	}
+}
+
+# Ensure "To: undisclosed-recipients:;" when sending only to Bcc's
+if (not @to and not @cc) {
+	push(@to, "undisclosed-recipients:;");
+}
+
 # Build the MIME message if required
 if (defined($subject) or defined($body_plain) or defined($body_html) or
 		@attachments or @attachments_inline) {
@@ -282,24 +306,6 @@ elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 == 0))
 	$use_login = 1;
 	$use_plain = 1;
 	$use_cram_md5 = 1 if ($have_hmac_md5);
-}
-
-# Extract $mail_from address from $from
-if (not defined($mail_from) and defined($from)) {
-	$mail_from = &find_email_addr($from) or
-		die ("The --from string does not contain a valid email address: $from\n");
-}
-
-# Extract @rcpt_to list from @to, @cc and @bcc
-if (not @rcpt_to) {
-	foreach my $rcpt (@to, @cc, @bcc) {
-		my $rcpt_addr = &find_email_addr($rcpt);
-		if (not defined($rcpt_addr)) {
-			warn("No valid email address found in: $rcpt\n");
-			next;
-		}
-		push(@rcpt_to, $rcpt_addr);
-	}
 }
 
 # Exit if user haven't specified username for AUTH.
