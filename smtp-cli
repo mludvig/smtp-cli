@@ -2,12 +2,12 @@
 
 # 
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2011
+# Michal Ludvig <michal@logix.cz>, 2003-2012
 # See http://smtp-cli.logix.cz for details.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.0"
+my $version = "3.0";
 
 # 
 # ChangeLog:
