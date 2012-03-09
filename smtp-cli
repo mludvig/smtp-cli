@@ -12,6 +12,7 @@ my $version = "3.1-git";
 # 
 # ChangeLog:
 # * Version 3.1
+#   - Support for --header (Thx Peter Neal)
 #
 # * Version 3.0    (2012-01-24)
 #   - Support for server SSL verification agains CA root cert.
@@ -87,7 +88,7 @@ my ($user, $pass, $host, $port, $addr_family,
     $subject, $body_plain, $body_html, $charset, $print_only,
     @attachments, @attachments_inline,
     $ssl_ca_file, $ssl_ca_path,
-    $sock, $built_message);
+    $sock, $built_message, @headers);
 
 $host = undef;
 $port = 'smtp(25)';
@@ -135,6 +136,7 @@ GetOptions (
 	'body|body-plain=s' => \$body_plain,
 	'body-html=s' => \$body_html,
 	'charset=s' => \$charset,
+	'header=s' => \@headers,
 	'attachment|attach=s' => \@attachments,
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'print-only' => \$print_only,
@@ -830,6 +832,15 @@ sub build_message
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
 	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
+
+	# Add / Replace custom headers
+	for my $h (@headers) {
+		$h =~ /^([a-zA-Z-]+):\s*(.*)/
+			or die("Error: Custom header $h is not valid, use: 'Header-Name: some value'.\n");
+		my ($k, $v) = ($1, $2);
+		$message->replace($k =>  $v);
+	}
+
 	return $message;
 }
 
@@ -948,6 +959,11 @@ Usage: smtp-cli [--options]
                                 in the 'body-html' contents.
                                 See --attach for details about MIME-Type.
                                 Can be used multiple times.
+        --header='X-Header-Name: [Some Value]'
+                                Add one or more custom headers. Can also be used
+                                to remove a header by setting it to empty string.
+                                For example --header=\"X-Mailer:\" will remove
+                                the X-Mailer header altogether.
         --print-only            Dump the composed MIME message to standard
                                 output. This is useful mainly for debugging
                                 or in the case you need to run the message
