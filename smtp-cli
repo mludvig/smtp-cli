@@ -12,7 +12,7 @@ my $version = "3.0+git";
 # 
 # ChangeLog:
 # * Version 3.1    (???)
-#   - New --add-header and --replace-header options.
+#   - New --add-header, --replace-header and --remove-header options.
 #
 # * Version 3.0    (2012-01-24)
 #   - Support for server SSL verification agains CA root cert.
@@ -87,7 +87,7 @@ my ($user, $pass, $host, $port, $addr_family,
     $missing_modules_ok, $missing_modules_count,
     $subject, $body_plain, $body_html, $charset, $print_only,
     @attachments, @attachments_inline,
-    @add_headers, @replace_headers,
+    @add_headers, @replace_headers, @remove_headers,
     $ssl_ca_file, $ssl_ca_path,
     $sock, $built_message);
 
@@ -141,6 +141,7 @@ GetOptions (
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'add-header=s' => \@add_headers,
 	'replace-header=s' => \@replace_headers,
+	'remove-header=s' => \@remove_headers,
 	'print-only' => \$print_only,
 	'missing-modules-ok' => \$missing_modules_ok,
 	'ssl-ca-file=s' => \$ssl_ca_file,
@@ -834,6 +835,7 @@ sub build_message
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
 	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
+
 	for my $header (@add_headers) {
 		my ($hdr, $val) = ($header =~ /^([^:]+):\s*(.*)$/);
 		die("Not a valid header format: ${header}\n") if (not $hdr or not $val);
@@ -844,6 +846,11 @@ sub build_message
 		die("Not a valid header format: ${header}\n") if (not $hdr or not $val);
 		$message->replace($hdr => $val);
 	}
+	for my $header (@remove_headers) {
+		my ($hdr) = ($header =~ /^([^:\s]+)/);
+		$message->replace($header => "");
+	}
+
 	return $message;
 }
 
@@ -964,10 +971,12 @@ Usage: smtp-cli [--options]
                                 Can be used multiple times.
         --add-header=\"Header: value\"
         --replace-header=\"Header: value\"
-                                Add or Replace pretty much any header in the
-                                email. For example set a different Mailer
-                                label with: --replace-header=\"X-Mailer: Blah\"
-                                or add a completely custom header with
+        --remove-header=\"Header\"
+                                Add, Replace or Remove pretty much any header
+                                in the email. For example to set a different
+                                Mailer use --replace-header=\"X-Mailer: Blah\",
+                                to remove it altogether --remove-header=X-Mailer
+                                or to add a completely custom header use
                                 --add-header=\"X-Something: foo bar\".
         --print-only            Dump the composed MIME message to standard
                                 output. This is useful mainly for debugging
