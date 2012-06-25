@@ -13,6 +13,7 @@ my $version = "3.0+git";
 # ChangeLog:
 # * Version 3.1    (???)
 #   - New --add-header, --replace-header and --remove-header options.
+#   - Improved compatibility with new IO::Socket::SSL releases.
 #
 # * Version 3.0    (2012-01-24)
 #   - Support for server SSL verification agains CA root cert.
@@ -608,8 +609,7 @@ sub socket_to_ssl($)
 	Net::SSLeay::SSLeay_add_ssl_algorithms();
 	Net::SSLeay::randomize();
 
-	if (! IO::Socket::SSL::socket_to_SSL($sock, {
-		SSL_version => 'SSLv3 TLSv1',
+	if (! IO::Socket::SSL->start_SSL($sock, {
 		SSL_ca_file => $ssl_ca_file,
 		SSL_ca_path => $ssl_ca_path,
 		SSL_verify_mode => (defined($ssl_ca_file) or defined($ssl_ca_path)) ? 0x01 : 0x00,
