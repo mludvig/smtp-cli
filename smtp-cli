@@ -7,11 +7,11 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.0+git";
+my $version = "3.1"
 
 # 
 # ChangeLog:
-# * Version 3.1    (???)
+# * Version 3.1    (2012-06-25)
 #   - New --add-header, --replace-header and --remove-header options.
 #   - Improved compatibility with new IO::Socket::SSL releases.
 #
