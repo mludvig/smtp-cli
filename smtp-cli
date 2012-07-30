@@ -11,6 +11,10 @@ my $version = "3.2";
 
 # 
 # ChangeLog:
+#   - Moved from File::Type to File::LibMagic
+#     (File::Type is no longer maintained and not available
+#      in EPEL for RHEL 6)
+#
 # * Version 3.2    (2012-06-26)
 #   - Fixed syntax error
 #
@@ -186,10 +190,10 @@ if (not $mime_lite and not $missing_modules_ok) {
 	$missing_modules_count++;
 }
 
-## File::Type dependency is optional
-my $file_type = eval { require File::Type; File::Type->new(); };
-if (not $file_type and not $missing_modules_ok) {
-	warn("!!! File::Type -- optional module not found\n");
+## File::LibMagic dependency is optional
+my $file_libmagic = eval { require File::LibMagic; File::LibMagic->new(); };
+if (not $file_libmagic and not $missing_modules_ok) {
+	warn("!!! File::LibMagic -- optional module not found\n");
 	warn("!!! Used for guessing MIME types of attachments\n\n");
 	$missing_modules_count++;
 }
@@ -685,11 +689,11 @@ sub find_email_addr($)
 sub guess_mime_type($)
 {
 	my $filename = shift;
-	if (defined($file_type)) {
-		## Use File::Type if possible
-		return $file_type->mime_type($filename);
+	if (defined($file_libmagic)) {
+		## Use File::LibMagic if possible
+		return $file_libmagic->checktype_filename($filename);
 	} else {
-		## Module File::Type is not available
+		## Module File::LibMagic is not available
 		## Still recognise some common extensions
 		return "image/jpeg" if ($filename =~ /\.jpe?g/i);
 		return "image/gif" if ($filename =~ /\.gif/i);
