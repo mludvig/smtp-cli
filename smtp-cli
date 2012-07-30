@@ -7,10 +7,11 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.2";
+my $version = "3.3";
 
 # 
 # ChangeLog:
+# * Version 3.3    (2012-07-30)
 #   - Moved from File::Type to File::LibMagic
 #     (File::Type is no longer maintained and not available
 #      in EPEL for RHEL 6)
