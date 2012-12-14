@@ -681,7 +681,7 @@ sub say_hello ($$$$)
 sub find_email_addr($)
 {
 	my $addr = shift;
-	if ($addr =~ /\b([A-Z0-9._%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
+	if ($addr =~ /([A-Z0-9._%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
 		return $1;
 	}
 	return undef;
