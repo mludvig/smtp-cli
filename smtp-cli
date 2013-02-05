@@ -11,6 +11,9 @@ my $version = "3.3";
 
 # 
 # ChangeLog:
+# * Version 3.4    (2013-02-05)
+#   - Ok, ok, support both File::Type and File::LibMagic
+#
 # * Version 3.3    (2012-07-30)
 #   - Moved from File::Type to File::LibMagic
 #     (File::Type is no longer maintained and not available
@@ -193,9 +196,14 @@ if (not $mime_lite and not $missing_modules_ok) {
 
 ## File::LibMagic dependency is optional
 my $file_libmagic = eval { require File::LibMagic; File::LibMagic->new(); };
-if (not $file_libmagic and not $missing_modules_ok) {
-	warn("!!! File::LibMagic -- optional module not found\n");
-	warn("!!! Used for guessing MIME types of attachments\n\n");
+
+## File::Type dependency is optional
+## Not needed if File::LibMagic is available
+my $file_type = eval { require File::Type; File::Type->new(); };
+
+if (not $file_libmagic and not $file_type and not $missing_modules_ok) {
+	warn("!!! Neither File::LibMagic nor File::Type module found.\n");
+	warn("!!! Used for guessing MIME types of attachments. Optional.\n\n");
 	$missing_modules_count++;
 }
 
@@ -693,6 +701,9 @@ sub guess_mime_type($)
 	if (defined($file_libmagic)) {
 		## Use File::LibMagic if possible
 		return $file_libmagic->checktype_filename($filename);
+	} elsif (defined($file_type)) {
+		## Use File::Type if possible
+		return $file_type->mime_type($filename);
 	} else {
 		## Module File::LibMagic is not available
 		## Still recognise some common extensions
