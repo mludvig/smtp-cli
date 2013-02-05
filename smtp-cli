@@ -7,7 +7,7 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.3";
+my $version = "3.4";
 
 #
 # ChangeLog:
