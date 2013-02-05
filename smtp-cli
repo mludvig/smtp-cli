@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# 
+#
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
 # Michal Ludvig <michal@logix.cz>, 2003-2012
 # See http://smtp-cli.logix.cz for details.
@@ -9,7 +9,7 @@
 
 my $version = "3.3";
 
-# 
+#
 # ChangeLog:
 # * Version 3.4    (2013-02-05)
 #   - Ok, ok, support both File::Type and File::LibMagic
@@ -62,7 +62,7 @@ my $version = "3.3";
 #   - Displays local and remote address on successfull connect.
 #
 # * Version 2.5    (2009-07-21)
-#   - IPv6 support provided the required modules are 
+#   - IPv6 support provided the required modules are
 #     available.
 #
 # * Version 2.1    (2008-12-08)
@@ -70,7 +70,7 @@ my $version = "3.3";
 #     the required functionality if they're not available.
 #
 # * Version 2.0    (2008-11-18)
-#   - Support for message building through MIME::Lite, 
+#   - Support for message building through MIME::Lite,
 #     including attachments, multipart, etc.
 #
 # * Version 1.1    (2006-08-26)
@@ -78,9 +78,9 @@ my $version = "3.3";
 #
 # * Version 1.0
 #   - First public version
-# 
+#
 # This program is licensed under GNU Public License v3 (GPLv3)
-# 
+#
 
 ## Require Perl 5.8 or higher -> we need open(.., .., \$variable) construct
 require 5.008;
@@ -123,18 +123,18 @@ $print_only = 0;
 # Get command line options.
 GetOptions (
 	'host|server=s' => \$host,
-	'port=i' => \$port, 
+	'port=i' => \$port,
 	'4|ipv4' => sub { $addr_family = AF_INET; },
 	'6|ipv6' => sub { $addr_family = AF_INET6; },
 	'user=s' => \$user, 'password=s' => \$pass,
-	'auth-login' => \$use_login, 
+	'auth-login' => \$use_login,
 	'auth-plain' => \$use_plain,
-	'auth-cram-md5' => \$use_cram_md5, 
+	'auth-cram-md5' => \$use_cram_md5,
 	'disable-ehlo' => sub { $ehlo_ok = 0; },
 	'force-ehlo' => sub { $ehlo_ok = 2; },
 	'hello-host|ehlo-host|helo-host=s' => \$hello_host,
 	'auth|enable-auth' => \$auth_ok,
-	'disable-starttls|disable-tls|disable-ssl' => 
+	'disable-starttls|disable-tls|disable-ssl' =>
 		sub { $starttls_ok = 0; },
 	'ssl' => sub { $ssl = 1 },
 	'disable-ssl' => sub { $ssl = 0 },
@@ -429,7 +429,7 @@ sub run_smtp
 		# Send EHLO again (required by the SMTP standard).
 		&say_hello ($sock, $ehlo_ok, $hello_host, \%features) or return 0;
 	}
-	
+
 	# See if we should authenticate ourself
 	if (defined ($features{'AUTH'}) && $auth_ok)
 	{
@@ -448,7 +448,7 @@ sub run_smtp
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
 				{ die ("AUTH CRAM-MD5 failed: $code $text\n"); }
-	
+
 			my $response = &encode_cram_md5 ($text, $user, $pass);
 			&send_line ($sock, "%s\n", $response);
 			($code, $text) = &get_line ($sock);
@@ -463,13 +463,13 @@ sub run_smtp
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
 				{ die ("AUTH LOGIN failed: $code $text\n"); }
-			
+
 			&send_line ($sock, "%s\n", encode_base64 ($user, ""));
 
 			($code, $text) = &get_line ($sock);
 			if ($code != 334)
 				{ die ("AUTH LOGIN failed: $code $text\n"); }
-			
+
 			&send_line ($sock, "%s\n", encode_base64 ($pass, ""));
 
 			($code, $text) = &get_line ($sock);
@@ -480,7 +480,7 @@ sub run_smtp
 		elsif ($features{'AUTH'} =~ /PLAIN/i && $use_plain)
 		{
 			printf ("using PLAIN\n") if ($verbose >= 1);
-			&send_line ($sock, "AUTH PLAIN %s\n", 
+			&send_line ($sock, "AUTH PLAIN %s\n",
 				encode_base64 ("$user\0$user\0$pass", ""));
 			($code, $text) = &get_line ($sock);
 			if ($code != 235)
@@ -493,10 +493,10 @@ sub run_smtp
 			      "advertised by the server.\n");
 			return 0;
 		}
-		
+
 		printf ("Authentication of $user\@$host succeeded\n") if ($verbose >= 1);
 	}
-	
+
 	# We can do a relay-test now if a recipient was set.
 	if ($#rcpt_to >= 0)
 	{
@@ -647,7 +647,7 @@ sub encode_cram_md5 ($$$)
 	my ($ticket64, $username, $password) = @_;
 	my $ticket = decode_base64($ticket64) or
 		die ("Unable to decode Base64 encoded string '$ticket64'\n");
-	
+
 	print "Decoded CRAM-MD5 challenge: $ticket\n" if ($verbose > 1);
 	my $password_md5 = Digest::HMAC_MD5::hmac_md5_hex($ticket, $password);
 	return encode_base64 ("$username $password_md5", "");
@@ -659,7 +659,7 @@ sub say_hello ($$$$)
 	my ($sock, $ehlo_ok, $hello_host, $featref) = @_;
 	my ($feat, $param);
 	my $hello_cmd = $ehlo_ok > 0 ? "EHLO" : "HELO";
-	
+
 	&send_line ($sock, "$hello_cmd $hello_host\n");
 	my ($code, $text, $more) = &get_one_line ($sock);
 
@@ -668,10 +668,10 @@ sub say_hello ($$$$)
 		warn ("$hello_cmd failed: '$code $text'\n");
 		return 0;
 	}
-	
+
 	# Empty the hash
 	%{$featref} = ();
-	
+
 	($feat, $param) = ($text =~ /^(\w+)[= ]*(.*)$/);
 	$featref->{$feat} = $param;
 
@@ -883,8 +883,8 @@ sub usage ()
 {
 	printf (
 "Simple SMTP client written in Perl that supports advanced
-features like STARTTLS and SMTP-AUTH and IPv6. It can also 
-create messages from components (files, text snippets) and 
+features like STARTTLS and SMTP-AUTH and IPv6. It can also
+create messages from components (files, text snippets) and
 attach files.
 
 Version: smtp-cli v$version
@@ -905,13 +905,13 @@ Usage: smtp-cli [--options]
         -6 or --ipv6            Use IPv6 protocol. For hosts that have
                                 both IPv6 and IPv4 addresses the IPv6
                                 connection is tried first.
-        
+
         --hello-host=<string>   String to use in the EHLO/HELO command.
         --disable-ehlo          Don't use ESMTP EHLO command, only HELO.
         --force-ehlo            Use EHLO even if server doesn't say ESMTP.
-        
+
         Transport encryption (TLS)
-        --disable-starttls      Don't use encryption even if the remote 
+        --disable-starttls      Don't use encryption even if the remote
                                 host offers it.
         --ssl                   Start in SMTP/SSL mode (aka SSMTP).
                                 Default when --port=465
@@ -932,8 +932,8 @@ Usage: smtp-cli [--options]
         --auth-login            Enable only AUTH LOGIN method.
         --auth-plain            Enable only AUTH PLAIN method.
         --auth-cram-md5         Enable only AUTH CRAM-MD5 method.
-        --auth                  Enable all supported methods. This is 
-                                normally not needed, --user enables 
+        --auth                  Enable all supported methods. This is
+                                normally not needed, --user enables
                                 everything as well.
 
         Sender / recipient
@@ -962,7 +962,7 @@ Usage: smtp-cli [--options]
 
         Send a complete RFC822-compliant email message:
         --data=<filename>       Name of file to send after DATA command.
-                                With \"--data=-\" the script will read 
+                                With \"--data=-\" the script will read
                                 standard input (useful e.g. for pipes).
 
         Alternatively build email a message from provided components:
@@ -975,15 +975,15 @@ Usage: smtp-cli [--options]
         --charset=<charset>     Character set used for Subject and Body,
                                 for example UTF-8, ISO-8859-2, KOI8-R, etc.
         --attach=<filename>[\@<MIME/Type>]
-                                Attach a given filename. 
-                                MIME-Type of the attachment is guessed 
+                                Attach a given filename.
+                                MIME-Type of the attachment is guessed
                                 by default guessed but can optionally
                                 be specified after '\@' delimiter.
                                 For instance: --attach mail.log\@text/plain
                                 Parameter can be used multiple times.
         --attach-inline=<filename>[\@<MIME/Type>]
                                 Attach a given filename (typically a picture)
-                                as a 'related' part to the above 'body-html'. 
+                                as a 'related' part to the above 'body-html'.
                                 Refer to these pictures as <img src='cid:filename'>
                                 in the 'body-html' contents.
                                 See --attach for details about MIME-Type.
