@@ -555,8 +555,10 @@ sub run_smtp
 		while (<MAIL>)
 		{
 			my $line = $_;
-			$line =~ s/^\.$CRLF$/\. $CRLF/;
-			$line =~ s/^\.\n$/\. $CRLF/;
+			# RFC 5321 section 4.5.2 - leading dot must be doubled
+			$line =~ s/^\./\.\./;
+			# RFC 5321 section 2.3.8 - ensure CR-LF line ending
+			$line =~ s/[\r\n]+$/$CRLF/;
 			$sock->print ($line);
 		}
 
