@@ -2,15 +2,19 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2012
+# Michal Ludvig <michal@logix.cz>, 2003-2013
 # See http://smtp-cli.logix.cz for details.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.4";
+my $version = "3.5";
 
 #
 # ChangeLog:
+# * Version 3.5    (2013-05-08)
+#   - Improved compliance with SMTP RFC 5321
+#   - New parameter --text-encoding
+#
 # * Version 3.4    (2013-02-05)
 #   - Ok, ok, support both File::Type and File::LibMagic
 #
