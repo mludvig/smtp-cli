@@ -91,13 +91,15 @@ use MIME::Base64 qw(encode_base64 decode_base64);
 use Getopt::Long;
 use Socket qw(:DEFAULT :crlf);
 
+my @valid_encodings = ("7bit", "8bit", "binary", "base64", "quoted-printable");
+
 my ($user, $pass, $host, $port, $addr_family,
     $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
     $mail_from, @rcpt_to, $from, @to, @cc, @bcc,
     $missing_modules_ok, $missing_modules_count,
-    $subject, $body_plain, $body_html, $charset, $print_only,
+    $subject, $body_plain, $body_html, $charset, $text_encoding, $print_only,
     @attachments, @attachments_inline,
     @add_headers, @replace_headers, @remove_headers,
     $ssl_ca_file, $ssl_ca_path,
@@ -118,6 +120,7 @@ $ehlo_ok = 1;
 $missing_modules_ok = 0;
 $missing_modules_count = 0;
 $charset = undef;
+$text_encoding = "quoted-printable";
 $print_only = 0;
 
 # Get command line options.
@@ -149,6 +152,7 @@ GetOptions (
 	'body|body-plain=s' => \$body_plain,
 	'body-html=s' => \$body_html,
 	'charset=s' => \$charset,
+	'text-encoding=s' => \$text_encoding,
 	'attachment|attach=s' => \@attachments,
 	'attachment-inline|attach-inline=s' => \@attachments_inline,
 	'add-header=s' => \@add_headers,
@@ -240,6 +244,12 @@ if (not defined($host)) {
 		# hostname to satisfy the next few tests.
 		$host = "localhost";
 	}
+}
+
+## Make sure the --text-encoding value is valid
+if (not ($text_encoding ~~ @valid_encodings))
+{
+	die ("The --text-encoding value is invalid: $text_encoding\nMust be one of: " . join(', ', @valid_encodings) . "\n");
 }
 
 ## Accept hostname with port number as host:port
@@ -779,7 +789,7 @@ sub mime_message($$)
 	my ($type, $data) = @_;
 
 	## Set QP encoding for text/* types, let MIME::Lite decide for all other types.
-	my $encoding = $type =~ /^text\// ? "quoted-printable" : undef;
+	my $encoding = $type =~ /^text\// ? $text_encoding : undef;
 	my $message = MIME::Lite->new(
 		Type	=> $type,
 		Encoding=> $encoding,
@@ -976,6 +986,12 @@ Usage: smtp-cli [--options]
                                 as multipart.
         --charset=<charset>     Character set used for Subject and Body,
                                 for example UTF-8, ISO-8859-2, KOI8-R, etc.
+        --text-encoding=<encoding>
+                                Enforce Content-Transfer-Encoding for text
+                                parts of the email, including body and
+                                attachments. Must be one of:
+                                ".join(", ", @valid_encodings)."
+                                The default is: quoted-printable
         --attach=<filename>[\@<MIME/Type>]
                                 Attach a given filename.
                                 MIME-Type of the attachment is guessed
