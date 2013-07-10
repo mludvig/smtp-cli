@@ -251,7 +251,7 @@ if (not defined($host)) {
 }
 
 ## Make sure the --text-encoding value is valid
-if (not ($text_encoding ~~ @valid_encodings))
+if (not grep(/^$text_encoding$/, @valid_encodings))
 {
 	die ("The --text-encoding value is invalid: $text_encoding\nMust be one of: " . join(', ', @valid_encodings) . "\n");
 }
