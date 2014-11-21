@@ -309,17 +309,27 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 		die("Requested building a message and at the same time used --data parameter.\n".
 		    "That's not possible, sorry.\n");
 	}
-	if (defined($body_plain) and -f $body_plain) {
-		local $/=undef;
-		open(FILE, $body_plain);
-		$body_plain = <FILE>;
-		close(FILE);
+	if (defined($body_plain)) {
+		if (-f $body_plain) {
+			local $/=undef;
+			open(FILE, $body_plain);
+			$body_plain = <FILE>;
+			close(FILE);
+		} elsif ($body_plain eq "-") {
+			local $/=undef;
+			$body_plain = <STDIN>;
+		}
 	}
-	if (defined($body_html) and -f $body_html) {
-		local $/=undef;
-		open(FILE, $body_html);
-		$body_html = <FILE>;
-		close(FILE);
+	if (defined($body_html)) {
+		if (-f $body_html) {
+			local $/=undef;
+			open(FILE, $body_html);
+			$body_html = <FILE>;
+			close(FILE);
+		} elsif ($body_html eq "-") {
+			local $/=undef;
+			$body_html = <STDIN>;
+		}
 	}
 	my $message = &build_message();
 
