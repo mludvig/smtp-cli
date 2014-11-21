@@ -2,15 +2,18 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2013
+# Michal Ludvig <michal@logix.cz>, 2003-2014
 # See http://smtp-cli.logix.cz for details.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.6";
+my $version = "3.7";
 
 #
 # ChangeLog:
+# * Version 3.7    (2014-11-21)
+#   - Support STDIN input with --body-plain=- or --body-html=-
+#
 # * Version 3.6    (2013-07-11)
 #   - Improved compatibility with perl < 5.10 and perl >= 5.18
 #   - Added support for more chars in user-part of email address.
