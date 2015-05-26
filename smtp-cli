@@ -313,7 +313,7 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 		    "That's not possible, sorry.\n");
 	}
 	if (defined($body_plain)) {
-		if (-f $body_plain) {
+		if (-e $body_plain) {
 			local $/=undef;
 			open(FILE, $body_plain);
 			$body_plain = <FILE>;
@@ -324,7 +324,7 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 		}
 	}
 	if (defined($body_html)) {
-		if (-f $body_html) {
+		if (-e $body_html) {
 			local $/=undef;
 			open(FILE, $body_html);
 			$body_html = <FILE>;
@@ -763,10 +763,10 @@ sub prepare_attachment($)
 	my $attachment = shift;
 	my ($path, $mime_type);
 
-	if (-f $attachment) {
+	if (-e $attachment) {
 		$path = $attachment;
 		$mime_type = guess_mime_type($attachment);
-	} elsif ($attachment =~ /(.*)@([^@]*)$/ and -f $1) {
+	} elsif ($attachment =~ /(.*)@([^@]*)$/ and -e $1) {
 		$path = $1;
 		$mime_type = $2;
 	}
