@@ -426,14 +426,14 @@ $ehlo_ok-- if ($text !~ /ESMTP/);
 &say_hello ($sock, $ehlo_ok, $hello_host, \%features) or exit (1);
 
 # Run the SMTP session
-&run_smtp ();
+my $exitcode = &run_smtp ();
 
 # Good bye...
 &send_line ($sock, "QUIT\n");
 ($code, $text) = &get_line ($sock);
 die ("Unknown QUIT response '$code'.\n") if ($code != 221);
 
-exit 0;
+exit $exitcode;
 
 # This is the main SMTP "engine".
 sub run_smtp
@@ -522,7 +522,7 @@ sub run_smtp
 		{
 			warn ("No supported authentication method\n".
 			      "advertised by the server.\n");
-			return 0;
+			return 1;
 		}
 
 		printf ("Authentication of $user\@$host succeeded\n") if ($verbose >= 1);
@@ -541,7 +541,7 @@ sub run_smtp
 		if ($code != 250)
 		{
 			warn ("MAIL FROM <$mail_from> failed: '$code $text'\n");
-			return 0;
+			return 1;
 		}
 
 		my $i;
