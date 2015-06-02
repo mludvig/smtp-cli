@@ -886,7 +886,7 @@ sub build_message
 	$message->replace("Cc" => join(", ", @cc));
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
-	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
+	$message->replace("Message-ID" => "<".time()."-".int(rand(999999))."\@smtp-cli>");
 
 	for my $header (@add_headers) {
 		my ($hdr, $val) = ($header =~ /^([^:]+):\s*(.*)$/);
