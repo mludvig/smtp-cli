@@ -536,7 +536,7 @@ sub run_smtp
 			warn ("From: address not set. Using empty one.\n");
 			$mail_from = "";
 		}
-		&send_line ($sock, "MAIL FROM: <%s>\n", $mail_from);
+		&send_line ($sock, "MAIL FROM:<%s>\n", $mail_from);
 		($code, $text) = &get_line ($sock);
 		if ($code != 250)
 		{
@@ -547,7 +547,7 @@ sub run_smtp
 		my $i;
 		for ($i=0; $i <= $#rcpt_to; $i++)
 		{
-			&send_line ($sock, "RCPT TO: <%s>\n", $rcpt_to[$i]);
+			&send_line ($sock, "RCPT TO:<%s>\n", $rcpt_to[$i]);
 			($code, $text) = &get_line ($sock);
 			if ($code != 250)
 			{
