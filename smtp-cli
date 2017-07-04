@@ -105,7 +105,7 @@ use Socket qw(:DEFAULT :crlf);
 
 my @valid_encodings = ("7bit", "8bit", "binary", "base64", "quoted-printable");
 
-my ($user, $pass, $host, $port, $addr_family,
+my ($user, $pass, $host, $port, $addr_family, $localaddr,
     $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
@@ -120,6 +120,7 @@ my ($user, $pass, $host, $port, $addr_family,
 $host = undef;
 $port = 'smtp(25)';
 $addr_family = AF_UNSPEC;
+$localaddr = undef;
 $hello_host = 'localhost';
 $verbose = 0;
 $use_login = 0;
@@ -141,6 +142,7 @@ GetOptions (
 	'port=i' => \$port,
 	'4|ipv4' => sub { $addr_family = AF_INET; },
 	'6|ipv6' => sub { $addr_family = AF_INET6; },
+	'local-addr=s' => \$localaddr,
 	'user=s' => \$user, 'password=s' => \$pass,
 	'auth-login' => \$use_login,
 	'auth-plain' => \$use_plain,
@@ -394,6 +396,11 @@ my %connect_args = (
 	PeerPort => $port,
 	Proto => 'tcp',
 	Timeout => 5);
+
+if (defined($localaddr)) {
+  $connect_args{'LocalAddr'} = $localaddr;
+}
+
 if ($socket6) {
 	$connect_args{'Domain'} = $addr_family;
 	$sock = IO::Socket::INET6->new(%connect_args) or die ("Connect failed: $@\n");
@@ -934,11 +941,11 @@ Usage: smtp-cli [--options]
                                 use --port.
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
-
         -4 or --ipv4            Use standard IP (IPv4) protocol.
         -6 or --ipv6            Use IPv6 protocol. For hosts that have
                                 both IPv6 and IPv4 addresses the IPv6
                                 connection is tried first.
+        --local-addr=<address>  Specify local address (by default the OS chooses)
 
         --hello-host=<string>   String to use in the EHLO/HELO command.
         --disable-ehlo          Don't use ESMTP EHLO command, only HELO.
