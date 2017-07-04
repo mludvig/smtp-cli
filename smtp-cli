@@ -2,8 +2,9 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2014
-# See http://smtp-cli.logix.cz for details.
+# Michal Ludvig, 2003-2017
+# See http://smtp-cli.logix.cz for details
+# and https://github.com/mludvig/smtp-cli for code.
 # Thanks to all contributors for ideas and fixes!
 #
 
@@ -722,7 +723,7 @@ sub say_hello ($$$$)
 sub find_email_addr($)
 {
 	my $addr = shift;
-	if ($addr =~ /([A-Z0-9._%=+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
+	if ($addr =~ /([A-Z0-9._%=#+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
 		return $1;
 	}
 	return undef;
