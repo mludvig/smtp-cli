@@ -8,10 +8,15 @@
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.7";
+my $version = "3.8";
 
 #
 # ChangeLog:
+# * Version 3.8    (2017-07-05)
+#   - New parameter --local-addr
+#   - Support body and attachment reading from non-regular files
+#   - Various protocol fixes
+#
 # * Version 3.7    (2014-11-21)
 #   - Support STDIN input with --body-plain=- or --body-html=-
 #
@@ -930,7 +935,7 @@ attach files.
 
 Version: smtp-cli v$version
 
-Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2011
+Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2017
         http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
