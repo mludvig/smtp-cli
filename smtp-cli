@@ -2,7 +2,7 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig, 2003-2017
+# Michal Ludvig, 2003-2018
 # See http://smtp-cli.logix.cz for details
 # and https://github.com/mludvig/smtp-cli for code.
 # Thanks to all contributors for ideas and fixes!
@@ -12,6 +12,9 @@ my $version = "3.8";
 
 #
 # ChangeLog:
+# * Version 3.9    (2018-04-06)
+#   - Don't attempt to use IO::Socket::INET6 with --ipv4.
+#
 # * Version 3.8    (2017-07-05)
 #   - New parameter --local-addr
 #   - Support body and attachment reading from non-regular files
