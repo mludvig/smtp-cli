@@ -197,7 +197,7 @@ if (not $have_ssl and not $missing_modules_ok) {
 
 ## IO::Socket::INET6 and Socket6 are optional
 my $socket6 = eval { require IO::Socket::INET6; require Socket6; 1; };
-if (not $socket6) {
+if (not $socket6 and not ($addr_family == AF_INET)) {
 	if ($addr_family == AF_INET6) {
 		die("!!! IO::Socket::INET6 and Socket6 modules are not found\nIPv6 support is not available\n");
 	}
@@ -406,11 +406,14 @@ if (defined($localaddr)) {
   $connect_args{'LocalAddr'} = $localaddr;
 }
 
-if ($socket6) {
+if ($addr_family == AF_INET) {
+	# If the user requested --ipv4 don't even bother with INET6 module
+	# (although it should work some users reported problems)
+	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
+} else {
+	# Either --ipv6 or no preference - do the best we can
 	$connect_args{'Domain'} = $addr_family;
 	$sock = IO::Socket::INET6->new(%connect_args) or die ("Connect failed: $@\n");
-} else {
-	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
 }
 
 if ($verbose >= 1) {
