@@ -143,7 +143,7 @@ $missing_modules_count = 0;
 $charset = undef;
 $text_encoding = "quoted-printable";
 $print_only = 0;
-$message_id = time()."-".int(rand(999999))."\@smtp-cli";
+$message_id = "<".time()."-".int(rand(999999))."\@smtp-cli>";
 
 # Get command line options.
 GetOptions (
