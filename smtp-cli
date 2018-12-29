@@ -123,7 +123,7 @@ my ($user, $pass, $host, $port, $addr_family, $localaddr,
     @attachments, @attachments_inline,
     @add_headers, @replace_headers, @remove_headers,
     $ssl_ca_file, $ssl_ca_path,
-    $sock, $built_message);
+    $sock, $built_message, $message_id);
 
 $host = undef;
 $port = 'smtp(25)';
@@ -143,6 +143,7 @@ $missing_modules_count = 0;
 $charset = undef;
 $text_encoding = "quoted-printable";
 $print_only = 0;
+$message_id = time()."-".int(rand(999999))."\@smtp-cli";
 
 # Get command line options.
 GetOptions (
@@ -184,6 +185,7 @@ GetOptions (
 	'missing-modules-ok' => \$missing_modules_ok,
 	'ssl-ca-file=s' => \$ssl_ca_file,
 	'ssl-ca-path=s' => \$ssl_ca_path,
+	'message-id=s' => \$message_id,
 	'v|verbose+' => \$verbose,
 	'version' => sub { &version() },
 	'help' => sub { &usage() } );
@@ -905,7 +907,7 @@ sub build_message
 	$message->replace("Cc" => join(", ", @cc));
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
-	$message->replace("Message-ID" => "<".time()."-".int(rand(999999))."\@smtp-cli>");
+	$message->replace("Message-ID" => $message_id);
 
 	for my $header (@add_headers) {
 		my ($hdr, $val) = ($header =~ /^([^:]+):\s*(.*)$/);
@@ -1055,6 +1057,8 @@ Usage: smtp-cli [--options]
                                 to remove it altogether --remove-header=X-Mailer
                                 or to add a completely custom header use
                                 --add-header=\"X-Something: foo bar\".
+	--message-id=\"Message-Id\"
+				Unique Message-Id in the header.
         --print-only            Dump the composed MIME message to standard
                                 output. This is useful mainly for debugging
                                 or in the case you need to run the message
