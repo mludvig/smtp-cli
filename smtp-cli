@@ -572,7 +572,7 @@ sub run_smtp
 			{
 				warn ("RCPT TO <".$rcpt_to[$i]."> ".
 				      "failed: '$code $text'\n");
-				return 0;
+				return 1;
 			}
 		}
 	}
@@ -591,7 +591,7 @@ sub run_smtp
 		elsif (!open (MAIL, $datasrc))
 		{
 			warn ("Can't open file '$datasrc'\n");
-			return 0;
+			return 1;
 		}
 
 		&send_line ($sock, "DATA\n");
@@ -599,7 +599,7 @@ sub run_smtp
 		if ($code != 354)
 		{
 			warn ("DATA failed: '$code $text'\n");
-			return 0;
+			return 1;
 		}
 
 		while (<MAIL>)
@@ -620,12 +620,12 @@ sub run_smtp
 		if ($code != 250)
 		{
 			warn ("DATA not send: '$code $text'\n");
-			return 0;
+			return 1;
 		}
 	}
 
 	# Perfect. Everything succeeded!
-	return 1;
+	return 0;
 }
 
 # Get one line of response from the server.
