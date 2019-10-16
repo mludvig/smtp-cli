@@ -2,16 +2,19 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig, 2003-2018
+# Michal Ludvig, 2003-2019
 # See http://smtp-cli.logix.cz for details
 # and https://github.com/mludvig/smtp-cli for code.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.9";
+my $version = "3.10";
 
 #
 # ChangeLog:
+# * Version 3.10   (2019-10-16)
+#   - Use DNS for MX resolution when no --server is given
+#
 # * Version 3.9    (2018-04-06)
 #   - Don't attempt to use IO::Socket::INET6 with --ipv4.
 #
@@ -960,7 +963,7 @@ attach files.
 
 Version: smtp-cli v$version
 
-Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2017
+Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2019
         http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
