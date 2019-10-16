@@ -251,42 +251,23 @@ if (not $have_hmac_md5 and not $missing_modules_ok) {
 	$missing_modules_count++;
 }
 
+my $have_dns = eval { require Net::DNS; 1; };
+if (not $have_dns and not $missing_modules_ok) {
+	warn("!!! Net::DNS -- optional module not found\n");
+	warn("!!! Used for resolving recipient MX record\n");
+	$missing_modules_count++;
+}
+
 ## Advise about --missing-modules-ok parameter
 if ($missing_modules_count) {
 	warn("!!! Use --missing-modules-ok if you don't need the above listed modules\n");
 	warn("!!! and don't want to see this message again.\n\n");
 }
 
-## Make sure we've got a server name to connect to
-if (not defined($host)) {
-	if (not $print_only) {
-		die("Error: Specify the SMTP server with --server=hostname[:port]\n");
-	} else {
-		# We're printing to stdout only, let's assign just about any
-		# hostname to satisfy the next few tests.
-		$host = "localhost";
-	}
-}
-
 ## Make sure the --text-encoding value is valid
 if (not grep(/^$text_encoding$/, @valid_encodings))
 {
 	die ("The --text-encoding value is invalid: $text_encoding\nMust be one of: " . join(', ', @valid_encodings) . "\n");
-}
-
-## Accept hostname with port number as host:port
-## Either it's a hostname:port or 1.2.3.4:port or [2001:db8::1]:port.
-## Don't parse 2001:db8::1 as $host=2001:db8:: and $port=1!
-if (($host =~ /^([^:]+):([:alnum:]+)$/) or
-    ($host =~ /^\[([[:xdigit:]:]+)\]:([:alnum:]+)$/))
-{
-	$host = $1;
-	$port = $2;
-}
-
-## Automatically start in SSL mode if port == 465 (SSMTP)
-if (not defined($ssl)) {
-	$ssl = ($port == 465);
 }
 
 # Extract $mail_from address from $from
@@ -310,6 +291,44 @@ if (not @rcpt_to) {
 # Ensure "To: undisclosed-recipients:;" when sending only to Bcc's
 if (not @to and not @cc) {
 	push(@to, "undisclosed-recipients:;");
+}
+
+## Make sure we've got a server name to connect to
+if (not defined($host)) {
+	if ($print_only) {
+		# We're printing to stdout only, let's assign just about any
+		# hostname to satisfy the next few tests.
+		$host = "localhost";
+	} elsif ($have_dns) {
+		my @rcpt0 = split(/@/, $rcpt_to[0]);
+		my $rcpt0_domain = $rcpt0[1];
+		my $res = Net::DNS::Resolver->new;
+		my @mx  = Net::DNS::mx($res, $rcpt0_domain);
+		#my @mx  = $res->mx($rcpt_to[0]);
+		if (@mx) {
+			$host = $mx[0]->exchange;
+			print("Resolved MX for $rcpt_to[0]: $host\n");
+		}
+	}
+	# If still not defined...
+	if (not defined($host)) {
+		die("Error: Specify the SMTP server with --server=hostname[:port]\n");
+	}
+}
+
+## Accept hostname with port number as host:port
+## Either it's a hostname:port or 1.2.3.4:port or [2001:db8::1]:port.
+## Don't parse 2001:db8::1 as $host=2001:db8:: and $port=1!
+if (($host =~ /^([^:]+):([:alnum:]+)$/) or
+    ($host =~ /^\[([[:xdigit:]:]+)\]:([:alnum:]+)$/))
+{
+	$host = $1;
+	$port = $2;
+}
+
+## Automatically start in SSL mode if port == 465 (SSMTP)
+if (not defined($ssl)) {
+	$ssl = ($port == 465);
 }
 
 # Build the MIME message if required
@@ -950,6 +969,8 @@ Usage: smtp-cli [--options]
                                 Host name or IP address of the SMTP server.
                                 May include the port after colon, alternatively
                                 use --port.
+                                If not set try to resolve DNS MX record
+                                for the first recipient (e.g. --to, --cc, etc).
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
         -4 or --ipv4            Use standard IP (IPv4) protocol.
