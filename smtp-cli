@@ -116,7 +116,7 @@ use Socket qw(:DEFAULT :crlf);
 
 my @valid_encodings = ("7bit", "8bit", "binary", "base64", "quoted-printable");
 
-my ($user, $pass, $host, $port, $addr_family, $localaddr,
+my ($user, $userfile, $pass, $pwfile, $host, $port, $addr_family, $localaddr,
     $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
@@ -155,6 +155,7 @@ GetOptions (
 	'6|ipv6' => sub { $addr_family = AF_INET6; },
 	'local-addr=s' => \$localaddr,
 	'user=s' => \$user, 'password=s' => \$pass,
+	'userfile=s' => \$userfile, 'pwfile=s' => \$pwfile,
 	'auth-login' => \$use_login,
 	'auth-plain' => \$use_plain,
 	'auth-cram-md5' => \$use_cram_md5,
@@ -380,9 +381,23 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 	seek(BUILT_MESSAGE, 0, 0);
 }
 
-# Username was given -> enable AUTH
-if ($user)
-	{ $auth_ok = 1; }
+# Username was given -> enable AUTH. Prefer command line.
+if ($user || $userfile)	{
+	#user to be read from command line
+	if (defined($user)) {
+		$auth_ok = 1;
+	#user to be read from file
+	} elsif (-f $userfile) {
+		open(FILE, $userfile);
+		if(my $line = <FILE>) {
+			chomp($line);
+			$user = $line;
+			undef $line;
+			$auth_ok = 1;
+		}
+		close(FILE);
+	}
+}
 
 # If at least one --auth-* option was given, enable AUTH.
 if ($use_login + $use_plain + $use_cram_md5 > 0)
@@ -399,6 +414,20 @@ elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 == 0))
 # Exit if user haven't specified username for AUTH.
 if ($auth_ok && !defined ($user))
 	{ die ("SMTP AUTH support requested without --user\n"); }
+
+# Evaluate where to take password from. Prefer command line.
+if (!defined ($pass) && defined ($pwfile))
+{
+	if (-f $pwfile) {
+		open(FILE, $pwfile);
+		if(my $line = <FILE>) {
+			chomp($line);
+			$pass = $line;
+			undef $line;
+		}
+		close(FILE);
+	}
+}
 
 # Ask for password if it wasn't supplied on the command line.
 if ($auth_ok && defined ($user) && !defined ($pass))
@@ -1003,8 +1032,13 @@ Usage: smtp-cli [--options]
                                 from OpenSSL.
 
         Authentication options (AUTH)
-        --user=<username>       Username for SMTP authentication.
-        --pass=<password>       Corresponding password.
+        --user=<username>
+        --userfile=<filename>
+                                Username for SMTP authentication.
+                                (--user takes precedence over --userfile.)
+        --pass=<password>       
+        --pwfile=<filename>     Corresponding password.
+                                (--pass takes precedence over --pwfile.)
         --auth-login            Enable only AUTH LOGIN method.
         --auth-plain            Enable only AUTH PLAIN method.
         --auth-cram-md5         Enable only AUTH CRAM-MD5 method.
