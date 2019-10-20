@@ -2,15 +2,34 @@
 
 #
 # Command line SMTP client with SSL, STARTTLS, SMTP-AUTH and IPv6 support.
-# Michal Ludvig <michal@logix.cz>, 2003-2013
-# See http://smtp-cli.logix.cz for details.
+# Michal Ludvig, 2003-2019
+# See http://smtp-cli.logix.cz for details
+# and https://github.com/mludvig/smtp-cli for code.
 # Thanks to all contributors for ideas and fixes!
 #
 
-my $version = "3.5";
+my $version = "3.10";
 
 #
 # ChangeLog:
+# * Version 3.10   (2019-10-16)
+#   - Use DNS for MX resolution when no --server is given
+#
+# * Version 3.9    (2018-04-06)
+#   - Don't attempt to use IO::Socket::INET6 with --ipv4.
+#
+# * Version 3.8    (2017-07-05)
+#   - New parameter --local-addr
+#   - Support body and attachment reading from non-regular files
+#   - Various protocol fixes
+#
+# * Version 3.7    (2014-11-21)
+#   - Support STDIN input with --body-plain=- or --body-html=-
+#
+# * Version 3.6    (2013-07-11)
+#   - Improved compatibility with perl < 5.10 and perl >= 5.18
+#   - Added support for more chars in user-part of email address.
+#
 # * Version 3.5    (2013-05-08)
 #   - Improved compliance with SMTP RFC 5321
 #   - New parameter --text-encoding
@@ -97,7 +116,7 @@ use Socket qw(:DEFAULT :crlf);
 
 my @valid_encodings = ("7bit", "8bit", "binary", "base64", "quoted-printable");
 
-my ($user, $userfile, $pass, $pwfile, $host, $port, $addr_family,
+my ($user, $userfile, $pass, $pwfile, $host, $port, $addr_family, $localaddr,
     $use_login, $use_plain, $use_cram_md5,
     $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
@@ -112,6 +131,7 @@ my ($user, $userfile, $pass, $pwfile, $host, $port, $addr_family,
 $host = undef;
 $port = 'smtp(25)';
 $addr_family = AF_UNSPEC;
+$localaddr = undef;
 $hello_host = 'localhost';
 $verbose = 0;
 $use_login = 0;
@@ -133,6 +153,7 @@ GetOptions (
 	'port=i' => \$port,
 	'4|ipv4' => sub { $addr_family = AF_INET; },
 	'6|ipv6' => sub { $addr_family = AF_INET6; },
+	'local-addr=s' => \$localaddr,
 	'user=s' => \$user, 'password=s' => \$pass,
 	'userfile=s' => \$userfile, 'pwfile=s' => \$pwfile,
 	'auth-login' => \$use_login,
@@ -183,7 +204,7 @@ if (not $have_ssl and not $missing_modules_ok) {
 
 ## IO::Socket::INET6 and Socket6 are optional
 my $socket6 = eval { require IO::Socket::INET6; require Socket6; 1; };
-if (not $socket6) {
+if (not $socket6 and not ($addr_family == AF_INET)) {
 	if ($addr_family == AF_INET6) {
 		die("!!! IO::Socket::INET6 and Socket6 modules are not found\nIPv6 support is not available\n");
 	}
@@ -234,42 +255,23 @@ if (not $have_hmac_md5 and not $missing_modules_ok) {
 	$missing_modules_count++;
 }
 
+my $have_dns = eval { require Net::DNS; 1; };
+if (not $have_dns and not $missing_modules_ok) {
+	warn("!!! Net::DNS -- optional module not found\n");
+	warn("!!! Used for resolving recipient MX record\n");
+	$missing_modules_count++;
+}
+
 ## Advise about --missing-modules-ok parameter
 if ($missing_modules_count) {
 	warn("!!! Use --missing-modules-ok if you don't need the above listed modules\n");
 	warn("!!! and don't want to see this message again.\n\n");
 }
 
-## Make sure we've got a server name to connect to
-if (not defined($host)) {
-	if (not $print_only) {
-		die("Error: Specify the SMTP server with --server=hostname[:port]\n");
-	} else {
-		# We're printing to stdout only, let's assign just about any
-		# hostname to satisfy the next few tests.
-		$host = "localhost";
-	}
-}
-
 ## Make sure the --text-encoding value is valid
-if (not ($text_encoding ~~ @valid_encodings))
+if (not grep(/^$text_encoding$/, @valid_encodings))
 {
 	die ("The --text-encoding value is invalid: $text_encoding\nMust be one of: " . join(', ', @valid_encodings) . "\n");
-}
-
-## Accept hostname with port number as host:port
-## Either it's a hostname:port or 1.2.3.4:port or [2001:db8::1]:port.
-## Don't parse 2001:db8::1 as $host=2001:db8:: and $port=1!
-if (($host =~ /^([^:]+):([:alnum:]+)$/) or
-    ($host =~ /^\[([[:xdigit:]:]+)\]:([:alnum:]+)$/))
-{
-	$host = $1;
-	$port = $2;
-}
-
-## Automatically start in SSL mode if port == 465 (SSMTP)
-if (not defined($ssl)) {
-	$ssl = ($port == 465);
 }
 
 # Extract $mail_from address from $from
@@ -295,6 +297,44 @@ if (not @to and not @cc) {
 	push(@to, "undisclosed-recipients:;");
 }
 
+## Make sure we've got a server name to connect to
+if (not defined($host)) {
+	if ($print_only) {
+		# We're printing to stdout only, let's assign just about any
+		# hostname to satisfy the next few tests.
+		$host = "localhost";
+	} elsif ($have_dns) {
+		my @rcpt0 = split(/@/, $rcpt_to[0]);
+		my $rcpt0_domain = $rcpt0[1];
+		my $res = Net::DNS::Resolver->new;
+		my @mx  = Net::DNS::mx($res, $rcpt0_domain);
+		#my @mx  = $res->mx($rcpt_to[0]);
+		if (@mx) {
+			$host = $mx[0]->exchange;
+			print("Resolved MX for $rcpt_to[0]: $host\n");
+		}
+	}
+	# If still not defined...
+	if (not defined($host)) {
+		die("Error: Specify the SMTP server with --server=hostname[:port]\n");
+	}
+}
+
+## Accept hostname with port number as host:port
+## Either it's a hostname:port or 1.2.3.4:port or [2001:db8::1]:port.
+## Don't parse 2001:db8::1 as $host=2001:db8:: and $port=1!
+if (($host =~ /^([^:]+):([:alnum:]+)$/) or
+    ($host =~ /^\[([[:xdigit:]:]+)\]:([:alnum:]+)$/))
+{
+	$host = $1;
+	$port = $2;
+}
+
+## Automatically start in SSL mode if port == 465 (SSMTP)
+if (not defined($ssl)) {
+	$ssl = ($port == 465);
+}
+
 # Build the MIME message if required
 if (defined($subject) or defined($body_plain) or defined($body_html) or
 		@attachments or @attachments_inline) {
@@ -306,17 +346,27 @@ if (defined($subject) or defined($body_plain) or defined($body_html) or
 		die("Requested building a message and at the same time used --data parameter.\n".
 		    "That's not possible, sorry.\n");
 	}
-	if (defined($body_plain) and -f $body_plain) {
-		local $/=undef;
-		open(FILE, $body_plain);
-		$body_plain = <FILE>;
-		close(FILE);
+	if (defined($body_plain)) {
+		if (-e $body_plain) {
+			local $/=undef;
+			open(FILE, $body_plain);
+			$body_plain = <FILE>;
+			close(FILE);
+		} elsif ($body_plain eq "-") {
+			local $/=undef;
+			$body_plain = <STDIN>;
+		}
 	}
-	if (defined($body_html) and -f $body_html) {
-		local $/=undef;
-		open(FILE, $body_html);
-		$body_html = <FILE>;
-		close(FILE);
+	if (defined($body_html)) {
+		if (-e $body_html) {
+			local $/=undef;
+			open(FILE, $body_html);
+			$body_html = <FILE>;
+			close(FILE);
+		} elsif ($body_html eq "-") {
+			local $/=undef;
+			$body_html = <STDIN>;
+		}
 	}
 	my $message = &build_message();
 
@@ -405,11 +455,19 @@ my %connect_args = (
 	PeerPort => $port,
 	Proto => 'tcp',
 	Timeout => 5);
-if ($socket6) {
+
+if (defined($localaddr)) {
+  $connect_args{'LocalAddr'} = $localaddr;
+}
+
+if ($addr_family == AF_INET) {
+	# If the user requested --ipv4 don't even bother with INET6 module
+	# (although it should work some users reported problems)
+	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
+} else {
+	# Either --ipv6 or no preference - do the best we can
 	$connect_args{'Domain'} = $addr_family;
 	$sock = IO::Socket::INET6->new(%connect_args) or die ("Connect failed: $@\n");
-} else {
-	$sock = IO::Socket::INET->new(%connect_args) or die ("Connect failed: $@\n");
 }
 
 if ($verbose >= 1) {
@@ -438,14 +496,14 @@ $ehlo_ok-- if ($text !~ /ESMTP/);
 &say_hello ($sock, $ehlo_ok, $hello_host, \%features) or exit (1);
 
 # Run the SMTP session
-&run_smtp ();
+my $exitcode = &run_smtp ();
 
 # Good bye...
 &send_line ($sock, "QUIT\n");
 ($code, $text) = &get_line ($sock);
 die ("Unknown QUIT response '$code'.\n") if ($code != 221);
 
-exit 0;
+exit $exitcode;
 
 # This is the main SMTP "engine".
 sub run_smtp
@@ -534,7 +592,7 @@ sub run_smtp
 		{
 			warn ("No supported authentication method\n".
 			      "advertised by the server.\n");
-			return 0;
+			return 1;
 		}
 
 		printf ("Authentication of $user\@$host succeeded\n") if ($verbose >= 1);
@@ -548,18 +606,18 @@ sub run_smtp
 			warn ("From: address not set. Using empty one.\n");
 			$mail_from = "";
 		}
-		&send_line ($sock, "MAIL FROM: <%s>\n", $mail_from);
+		&send_line ($sock, "MAIL FROM:<%s>\n", $mail_from);
 		($code, $text) = &get_line ($sock);
 		if ($code != 250)
 		{
 			warn ("MAIL FROM <$mail_from> failed: '$code $text'\n");
-			return 0;
+			return 1;
 		}
 
 		my $i;
 		for ($i=0; $i <= $#rcpt_to; $i++)
 		{
-			&send_line ($sock, "RCPT TO: <%s>\n", $rcpt_to[$i]);
+			&send_line ($sock, "RCPT TO:<%s>\n", $rcpt_to[$i]);
 			($code, $text) = &get_line ($sock);
 			if ($code != 250)
 			{
@@ -734,7 +792,7 @@ sub say_hello ($$$$)
 sub find_email_addr($)
 {
 	my $addr = shift;
-	if ($addr =~ /([A-Z0-9._%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
+	if ($addr =~ /([A-Z0-9._%=#+-]+@(?:[A-Z0-9-]+\.)+[A-Z]+)\b/i) {
 		return $1;
 	}
 	return undef;
@@ -775,10 +833,10 @@ sub prepare_attachment($)
 	my $attachment = shift;
 	my ($path, $mime_type);
 
-	if (-f $attachment) {
+	if (-e $attachment) {
 		$path = $attachment;
 		$mime_type = guess_mime_type($attachment);
-	} elsif ($attachment =~ /(.*)@([^@]*)$/ and -f $1) {
+	} elsif ($attachment =~ /(.*)@([^@]*)$/ and -e $1) {
 		$path = $1;
 		$mime_type = $2;
 	}
@@ -898,7 +956,7 @@ sub build_message
 	$message->replace("Cc" => join(", ", @cc));
 	$message->replace("Subject" => $subject);
 	$message->replace("X-Mailer" => "smtp-cli $version, see http://smtp-cli.logix.cz");
-	$message->replace("Message-ID" => time()."-".int(rand(999999))."\@smtp-cli");
+	$message->replace("Message-ID" => "<".time()."-".int(rand(999999))."\@smtp-cli>");
 
 	for my $header (@add_headers) {
 		my ($hdr, $val) = ($header =~ /^([^:]+):\s*(.*)$/);
@@ -934,7 +992,7 @@ attach files.
 
 Version: smtp-cli v$version
 
-Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2011
+Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2003-2019
         http://smtp-cli.logix.cz
 
 Usage: smtp-cli [--options]
@@ -943,13 +1001,15 @@ Usage: smtp-cli [--options]
                                 Host name or IP address of the SMTP server.
                                 May include the port after colon, alternatively
                                 use --port.
+                                If not set try to resolve DNS MX record
+                                for the first recipient (e.g. --to, --cc, etc).
         --port=<number>         Port where the SMTP server is listening.
                                 (default: 25)
-
         -4 or --ipv4            Use standard IP (IPv4) protocol.
         -6 or --ipv6            Use IPv6 protocol. For hosts that have
                                 both IPv6 and IPv4 addresses the IPv6
                                 connection is tried first.
+        --local-addr=<address>  Specify local address (by default the OS chooses)
 
         --hello-host=<string>   String to use in the EHLO/HELO command.
         --disable-ehlo          Don't use ESMTP EHLO command, only HELO.
