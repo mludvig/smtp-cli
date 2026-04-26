@@ -117,7 +117,7 @@ use Socket qw(:DEFAULT :crlf);
 my @valid_encodings = ("7bit", "8bit", "binary", "base64", "quoted-printable");
 
 my ($user, $pass, $host, $port, $addr_family, $localaddr,
-    $use_login, $use_plain, $use_cram_md5,
+    $use_login, $use_plain, $use_cram_md5, $use_xoauth2,
     $ehlo_ok, $auth_ok, $starttls_ok, $ssl, $verbose,
     $hello_host, $datasrc,
     $mail_from, @rcpt_to, $from, @to, @cc, @bcc,
@@ -137,6 +137,7 @@ $verbose = 0;
 $use_login = 0;
 $use_plain = 0;
 $use_cram_md5 = 0;
+$use_xoauth2 = 0;
 $starttls_ok = 1;
 $ssl = undef;
 $auth_ok = 0;
@@ -158,6 +159,7 @@ GetOptions (
 	'auth-login' => \$use_login,
 	'auth-plain' => \$use_plain,
 	'auth-cram-md5' => \$use_cram_md5,
+	'auth-xoauth2' => \$use_xoauth2,
 	'disable-ehlo' => sub { $ehlo_ok = 0; },
 	'force-ehlo' => sub { $ehlo_ok = 2; },
 	'hello-host|ehlo-host|helo-host=s' => \$hello_host,
@@ -385,15 +387,16 @@ if ($user)
 	{ $auth_ok = 1; }
 
 # If at least one --auth-* option was given, enable AUTH.
-if ($use_login + $use_plain + $use_cram_md5 > 0)
+if ($use_login + $use_plain + $use_cram_md5 + $use_xoauth2 > 0)
 	{ $auth_ok = 1; }
 
 # If --enable-auth was given, enable all AUTH methods.
-elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 == 0))
+elsif ($auth_ok && ($use_login + $use_plain + $use_cram_md5 + $use_xoauth2 == 0))
 {
 	$use_login = 1;
 	$use_plain = 1;
 	$use_cram_md5 = 1 if ($have_hmac_md5);
+	$use_xoauth2 = 1;
 }
 
 # Exit if user haven't specified username for AUTH.
@@ -512,8 +515,17 @@ sub run_smtp
 		# After all DIGEST-MD5 is on a way to deprecation
 		# see this thread: http://www.imc.org/ietf-sasl/mail-archive/msg02996.html
 
-		# Instead use CRAM-MD5 if supported by the server
-		if ($features{'AUTH'} =~ /CRAM-MD5/i && $use_cram_md5)
+		# Instead use XOAUTH2 if supported by the server
+		if ($features{'AUTH'} =~ /XOAUTH2/i && $use_xoauth2)
+		{
+			printf ("using XOAUTH2\n") if ($verbose >= 1);
+			&send_line ($sock, "AUTH XOAUTH2 %s\n", $pass);
+			($code, $text) = &get_line ($sock);
+			if ($code != 235)
+				{ die ("XOAUTH2 failed: $code $text\n"); }
+		}
+		# Otherwise use CRAM-MD5 if supported by the server
+		elsif ($features{'AUTH'} =~ /CRAM-MD5/i && $use_cram_md5)
 		{
 			printf ("using CRAM-MD5\n") if ($verbose >= 1);
 			&send_line ($sock, "AUTH CRAM-MD5\n");
@@ -1008,6 +1020,8 @@ Usage: smtp-cli [--options]
         --auth-login            Enable only AUTH LOGIN method.
         --auth-plain            Enable only AUTH PLAIN method.
         --auth-cram-md5         Enable only AUTH CRAM-MD5 method.
+        --auth-xoauth2          Enable only AUTH XOAUTH2 method. Send the
+                                password as the SASL authentication string.
         --auth                  Enable all supported methods. This is
                                 normally not needed, --user enables
                                 everything as well.
