@@ -12,6 +12,9 @@ my $version = "3.10";
 
 #
 # ChangeLog:
+# * Current        (2026-11-05)
+#   - Fix Duplicate specification "disable-ssl" for option "disable-ssl"
+#
 # * Version 3.10   (2019-10-16)
 #   - Use DNS for MX resolution when no --server is given
 #
@@ -162,10 +165,12 @@ GetOptions (
 	'force-ehlo' => sub { $ehlo_ok = 2; },
 	'hello-host|ehlo-host|helo-host=s' => \$hello_host,
 	'auth|enable-auth' => \$auth_ok,
-	'disable-starttls|disable-tls|disable-ssl' =>
-		sub { $starttls_ok = 0; },
+	'disable-starttls|disable-tls|disable-ssl' => sub {
+		my $opt = shift;
+		$starttls_ok = 0;
+		$ssl = 0 if $opt eq 'disable-ssl';
+	},
 	'ssl' => sub { $ssl = 1 },
-	'disable-ssl' => sub { $ssl = 0 },
 	'mail-from=s' => \$mail_from,
 	'rcpt-to=s' => \@rcpt_to,
 	'from=s' => \$from,
