@@ -162,7 +162,7 @@ GetOptions (
 	'force-ehlo' => sub { $ehlo_ok = 2; },
 	'hello-host|ehlo-host|helo-host=s' => \$hello_host,
 	'auth|enable-auth' => \$auth_ok,
-	'disable-starttls|disable-tls|disable-ssl' =>
+	'disable-starttls|disable-tls' =>
 		sub { $starttls_ok = 0; },
 	'ssl' => sub { $ssl = 1 },
 	'disable-ssl' => sub { $ssl = 0 },
@@ -474,7 +474,7 @@ my $exitcode = &run_smtp ();
 ($code, $text) = &get_line ($sock);
 die ("Unknown QUIT response '$code'.\n") if ($code != 221);
 
-exit $exitcode;
+exit ($exitcode ? 0 : 1);
 
 # This is the main SMTP "engine".
 sub run_smtp
