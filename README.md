@@ -35,7 +35,7 @@ Some features of smtp-cli are optional and available only when the appropriate p
 
   ```sh
   $ sudo yum install  perl-IO-Socket-SSL  perl-Digest-HMAC  perl-TermReadKey  \
-	                    perl-MIME-Lite  perl-File-LibMagic  perl-IO-Socket-INET6
+	                    perl-MIME-Lite  perl-File-LibMagic  perl-IO-Socket-INET6 perl-Net-DNS
   ```
   
   If `yum` can't find them all try to enable [EPEL repository](http://fedoraproject.org/wiki/EPEL).
